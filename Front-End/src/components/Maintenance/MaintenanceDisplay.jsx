@@ -1,33 +1,114 @@
 import React, { useState, useContext, useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import MaintenanceDisplayModal from "../MaintenanceRequest/MaintenanceModalDisplay";
-import CalibrationTable from "../Calibration/CalibrationTable";
 import TypesofMaintenceForm from "../TypesOfMaintenance/TypesofMaintenceForm";
+import MaintenanceRecord from "../PMSForm/MaintenanceRecord";
 import { motion } from "framer-motion";
 import { TypeofMaintenanceContext } from "../../contexts/TypesofMainten/TypeofMaintenanceContext";
 import { AuthContext } from "../../contexts/AuthContext";
 
 // Lucide React Icons
 import {
-  Wrench,
+  ClipboardList,
   Eye,
   RefreshCw,
   Calendar,
   AlertCircle
 } from "lucide-react";
 
+/* ============================================================
+   EQUIPMENT TABLE COLUMNS (Last & Next Maint. removed)
+   ============================================================ */
+const EQUIPMENT_COLUMNS = [
+  { key: "codeNo", label: "Code No.", width: "22%" },
+  { key: "serialNumber", label: "Serial No.", width: "28%" },
+  { key: "brand", label: "Brand", width: "25%" },
+  { key: "category", label: "Category", width: "25%" },
+];
+
+/* ============================================================
+   EQUIPMENT TABLE
+   ============================================================ */
+function EquipmentTable({
+  pageItems = [],
+  emptyRowCount = 0,
+  columns = EQUIPMENT_COLUMNS,
+}) {
+  return (
+    <div className="w-full overflow-hidden rounded-lg border border-slate-200">
+      <table className="w-full border-collapse table-fixed">
+        <thead>
+          <tr className="bg-slate-100">
+            {columns.map((col) => (
+              <th
+                key={col.key}
+                className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-600 border-b border-slate-200"
+                style={{ width: col.width }}
+              >
+                {col.label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+
+        <tbody>
+          {pageItems.length === 0 ? (
+            <tr>
+              <td
+                colSpan={columns.length}
+                className="px-4 py-10 text-center text-sm text-slate-400 italic"
+              >
+                No equipment found.
+              </td>
+            </tr>
+          ) : (
+            pageItems.map((equipment, idx) => (
+              <tr
+                key={equipment._id || `row-${idx}`}
+                className="text-[12px] text-slate-700 hover:bg-slate-50 transition-colors"
+              >
+                <td className="px-4 py-3 border-b border-slate-100 font-semibold text-blue-700 truncate">
+                  {equipment.code || "—"}
+                </td>
+                <td className="px-4 py-3 border-b border-slate-100 font-medium text-slate-900 truncate">
+                  {equipment.SerialNumber || "—"}
+                </td>
+                <td className="px-4 py-3 border-b border-slate-100 truncate">
+                  {equipment.Brand || "—"}
+                </td>
+                <td className="px-4 py-3 border-b border-slate-100 truncate">
+                  {equipment.categoryName || "—"}
+                </td>
+              </tr>
+            ))
+          )}
+
+          {Array.from({ length: emptyRowCount }).map((_, index) => (
+            <tr key={`empty-${index}`}>
+              {columns.map((_, i) => (
+                <td
+                  key={i}
+                  className="px-4 py-3 border-b border-slate-100 h-[45px]"
+                />
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function MaintenanceDisplay() {
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [isOpenMaintenanceModal, setOpenMaintenanceModal] = useState(false);
-  const [isCalibration, setCalibration] = useState(false);
   const [isTypesofMaintenanceModal, setTypesofMaintenanceModal] = useState(false);
+  const [isMaintenanceRecordModal, setMaintenanceRecordModal] = useState(false);
   const { role } = useContext(AuthContext);
 
-  // Check if user has edit permissions
   const canEdit = role !== "Supply";
 
-  // NEW STATE: Para sa PMS Modal
   const [isPMSModalOpen, setPMSModalOpen] = useState(false);
   const [SendDataLab, setSendDataLab] = useState(null);
   const [SendDataEquip, setSendDataEquip] = useState(null);
@@ -35,6 +116,8 @@ function MaintenanceDisplay() {
   const { displayData, DeleteType } = useContext(TypeofMaintenanceContext);
   const [equipmentsPerPage] = useState(6);
   const laboratoryData = location.state?.selectedAssignEquipment;
+
+  console.log("displayData",displayData)
 
   const [assignEquipments, setAssignEquipments] = useState(() => {
     const saved = localStorage.getItem("assignedEquipments");
@@ -45,12 +128,6 @@ function MaintenanceDisplay() {
     const saved = localStorage.getItem("selectedLabsData");
     return saved ? JSON.parse(saved) : laboratoryData || "";
   });
-
-  const formatDate = (dateString) => {
-    if (!dateString) return "N/A";
-    const options = { year: "numeric", month: "short", day: "numeric" };
-    return new Date(dateString).toLocaleDateString(undefined, options);
-  };
 
   useEffect(() => {
     if (laboratoryData) {
@@ -73,10 +150,10 @@ function MaintenanceDisplay() {
     setOpenMaintenanceModal(true);
   };
 
-  const handleCalibration = (equipment, laboratory) => {
+  const handleMaintenanceRecord = (equipment, laboratory) => {
     setSendDataEquip(equipment);
     setSendDataLab(laboratory);
-    setCalibration(true);
+    setMaintenanceRecordModal(true);
   };
 
   const handleSendData = (equipment, laboratory) => {
@@ -94,7 +171,7 @@ function MaintenanceDisplay() {
   const handleCloseModal = () => {
     setOpenMaintenanceModal(false);
     setTypesofMaintenanceModal(false);
-    setCalibration(false);
+    setMaintenanceRecordModal(false);
     setPMSModalOpen(false);
   };
 
@@ -127,9 +204,30 @@ function MaintenanceDisplay() {
 
   const equipmentTypes = [...new Set(displayData?.map((item) => item.equipmentType))];
 
+  const emptyRowCount = Math.max(0, equipmentsPerPage - paginatedEquipment.length);
+
+  if (isMaintenanceRecordModal && canEdit) {
+    return (
+      <motion.div
+        className="w-full"
+        initial="hidden"
+        animate="visible"
+        variants={pageVariants}
+      >
+        <MaintenanceRecord
+          isOpen={isMaintenanceRecordModal}
+          toLab={SendDataLab}
+          toEquip={SendDataEquip}
+          laboratory={SendDataLab}
+          equipment={SendDataEquip}
+          onClose={handleCloseModal}
+        />
+      </motion.div>
+    );
+  }
+
   return (
     <motion.div className="space-y-4" initial="hidden" animate="visible" variants={pageVariants}>
-      {/* View Only Banner for Supply Role */}
       {!canEdit && (
         <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -170,98 +268,12 @@ function MaintenanceDisplay() {
           />
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left table-auto border-collapse border border-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="p-4 border-b text-xs font-bold uppercase text-gray-600">Serial#</th>
-                <th className="p-4 border-b text-xs font-bold uppercase text-gray-600">Brand</th>
-                <th className="p-4 border-b text-xs font-bold uppercase text-gray-600">Category</th>
-                <th className="p-4 border-b text-xs font-bold uppercase text-gray-600">Last Maint.</th>
-                <th className="p-4 border-b text-xs font-bold uppercase text-gray-600">Next Maint.</th>
-                {/* HIDE Actions Header when role is Supply */}
-                {canEdit && (
-                  <th className="p-4 border-b text-xs font-bold uppercase text-gray-600 text-center">Actions</th>
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {paginatedEquipment.length === 0 ? (
-                <tr>
-                  <td colSpan={canEdit ? 6 : 5} className="p-10 text-center text-gray-400 italic">
-                    No equipment found.
-                  </td>
-                </tr>
-              ) : (
-                paginatedEquipment.map((equipment) => (
-                  <tr key={equipment._id} className="hover:bg-blue-50/50 transition-colors border-b">
-                    <td className="p-4 text-sm font-medium">{equipment.SerialNumber}</td>
-                    <td className="p-4 text-sm text-gray-600">{equipment.Brand}</td>
-                    <td className="p-4 text-sm text-gray-600">{equipment.categoryName}</td>
-                    <td className="p-4 text-sm text-gray-600">{formatDate(equipment.lastMaintenanceDate)}</td>
-                    <td className="p-4 text-sm font-semibold">
-                      <div className="flex items-center gap-2">
-                        {formatDate(equipment.nextMaintenanceDate)}
-                        {equipment.hasMaintenance && (
-                          <AlertCircle className="w-4 h-4 text-red-500 animate-pulse" title="Maintenance Scheduled!" />
-                        )}
-                      </div>
-                    </td>
-                    {/* HIDE ALL Action Buttons when role is Supply */}
-                    {canEdit && (
-                      <td className="p-4 flex space-x-2 justify-center items-center flex-wrap gap-1">
-                        {/* PMS BUTTON */}
-                        {equipment.hasMaintenance && (
-                          <button
-                            onClick={() => handlePMSClick(equipment, laboratory)}
-                            className="px-2.5 py-1 text-white bg-red-600 rounded hover:bg-red-700 transition-colors flex items-center justify-center"
-                            title="Planned Maintenance System"
-                          >
-                            <span className="text-[10px] font-bold">PMS</span>
-                          </button>
-                        )}
-
-                        <button
-                          onClick={() => handleCalibration(equipment, laboratory)}
-                          className="p-2 text-white bg-teal-500 rounded-lg hover:bg-teal-600 transition-colors"
-                          title="Calibration"
-                        >
-                          <Wrench className="w-4 h-4" />
-                        </button>
-
-                        <button
-                          onClick={() => handleSelectEquipment(equipment, laboratory)}
-                          className="p-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
-                          title="View Details"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-
-                        {equipmentTypes.includes(equipment._id) ? (
-                          <button
-                            onClick={() => handleRetrieve(equipment)}
-                            className="p-2 text-white bg-orange-500 rounded-lg hover:bg-orange-600 transition-colors"
-                            title="Retrieve"
-                          >
-                            <RefreshCw className="w-4 h-4" />
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => handleSendData(equipment, laboratory)}
-                            className="p-2 text-white bg-indigo-500 rounded-lg hover:bg-indigo-600 transition-colors"
-                            title="Schedule Maintenance"
-                          >
-                            <Calendar className="w-4 h-4" />
-                          </button>
-                        )}
-                      </td>
-                    )}
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        {/* 👇 Table with Last & Next Maintenance removed */}
+        <EquipmentTable
+          pageItems={paginatedEquipment}
+          emptyRowCount={emptyRowCount}
+          columns={EQUIPMENT_COLUMNS}
+        />
 
         {/* Pagination Controls */}
         <div className="flex items-center justify-between mt-6">
@@ -271,14 +283,14 @@ function MaintenanceDisplay() {
           <div className="flex gap-2">
             <button
               onClick={() => paginate(currentPage - 1)}
-              className="px-4 py-2 bg-gray-100 text-sm font-bold rounded-lg disabled:opacity-30"
+              className="px-4 py-2 bg-gray-100 text-sm font-bold rounded-lg disabled:opacity-30 hover:bg-gray-200 transition-colors"
               disabled={currentPage === 1}
             >
               Prev
             </button>
             <button
               onClick={() => paginate(currentPage + 1)}
-              className="px-4 py-2 bg-gray-100 text-sm font-bold rounded-lg disabled:opacity-30"
+              className="px-4 py-2 bg-gray-100 text-sm font-bold rounded-lg disabled:opacity-30 hover:bg-gray-200 transition-colors"
               disabled={currentPage === totalPages || totalPages === 0}
             >
               Next
@@ -286,7 +298,7 @@ function MaintenanceDisplay() {
           </div>
         </div>
 
-        {/* Modals Container - Only open if canEdit */}
+        {/* Modals Container */}
         {isOpenMaintenanceModal && canEdit && (
           <MaintenanceDisplayModal
             isOpen={isOpenMaintenanceModal}
@@ -303,16 +315,7 @@ function MaintenanceDisplay() {
             onClose={handleCloseModal}
           />
         )}
-        {isCalibration && canEdit && (
-          <CalibrationTable
-            isOpen={isCalibration}
-            toLab={SendDataLab}
-            toEquip={SendDataEquip}
-            onClose={handleCloseModal}
-          />
-        )}
 
-        {/* NEW: PMS Modal Integration */}
         {isPMSModalOpen && canEdit && (
           <TypeMaintenanceModal
             isOpen={isPMSModalOpen}

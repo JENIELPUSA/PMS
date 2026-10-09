@@ -5,6 +5,14 @@ const authController = require("./../Controller/authController");
 router
   .route("/getEquipment")
   .get(authController.protect, EquipmentController.getSpecificEquipment);
+
+router
+  .route("/code/:code")
+  .get(authController.protect, EquipmentController.FindByCode);
+
+router
+  .route("/FindByEquipment")
+  .get(authController.protect, EquipmentController.FindByEquipment);
 router
   .route("/")
   .post(authController.protect, EquipmentController.createtool)

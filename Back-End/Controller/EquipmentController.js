@@ -7,7 +7,9 @@ const path = require("path");
 const fs = require("fs");
 const CustomError = require("../Utils/CustomError");
 const Equipment = require("../Models/Equipment");
-const AssignEquipment = require("../Models/AssigningEquipment");
+const Laboratory = require("../Models/Laboratory");
+const Assign = require("../Models/AssigningEquipment");
+const PMSMaintenanceController=require("../Models/PMS001")
 
 // Mapping of collections and their corresponding field names
 const collectionFieldMapping = {
@@ -15,7 +17,7 @@ const collectionFieldMapping = {
   Assign: "Equipments",
   IncomingMaintenance: "Equipments",
 };
-const TypesMaintenances= require("../Models/TypesOfMaintenace");
+const TypesMaintenances = require("../Models/TypesOfMaintenace");
 
 exports.Displaytool = AsyncErrorHandler(async (req, res) => {
   // Apply Apifeatures methods on the query
@@ -139,11 +141,14 @@ exports.Displaytool = AsyncErrorHandler(async (req, res) => {
     // ---------------- FINAL OUTPUT ----------------
     {
       $project: {
+        code: 1,
         Brand: 1,
         SerialNumber: 1,
         Specification: 1,
         status: 1,
         remarks: 1,
+        DateAcquired: 1,
+        createdAt: 1,
         CategoryName: { $ifNull: ["$CategoryData.CategoryName", "N/A"] },
         LaboratoryName: { $ifNull: ["$LaboratoryData.LaboratoryName", null] },
         DepartmentName: { $ifNull: ["$DepartmentData.DepartmentName", null] },
@@ -156,10 +161,10 @@ exports.Displaytool = AsyncErrorHandler(async (req, res) => {
       },
     },
 
-    // ✅ SORT BY BRAND A-Z
+    //  SORT BY NEWEST FIRST (Last In, First Out)
     {
-      $sort: { Brand: 1 } // 1 = A-Z, -1 = Z-A
-    }
+      $sort: { createdAt: -1 }, // -1 = pinakabago sa taas
+    },
   ]);
 
   res.status(200).json({
@@ -168,8 +173,9 @@ exports.Displaytool = AsyncErrorHandler(async (req, res) => {
     data: Equipment,
   });
 });
+
 // Purpose ang code na ito ay para once may ma remove na Equipment ay lahat na releted ay ma remove
-//pero naka base siya collectionMapping
+// pero naka base siya collectionMapping
 exports.deleteEquipmentAndRelated = async (req, res, next) => {
   const { equipmentID } = req.params;
 
@@ -178,7 +184,7 @@ exports.deleteEquipmentAndRelated = async (req, res, next) => {
     for (const [collectionName, fieldName] of Object.entries(
       collectionFieldMapping,
     )) {
-      const collection = mongoose.model(collectionName); //kinukuha yung model sa collection
+      const collection = mongoose.model(collectionName); // kinukuha yung model sa collection
 
       // Query upang hanapin ang mga dokumento na tumutugma sa equipmentID sa kaukulang field
       const relatedDocs = await collection.find({ [fieldName]: equipmentID });
@@ -211,7 +217,7 @@ exports.deleteEquipmentAndRelated = async (req, res, next) => {
 };
 
 // Purpose ang code na ito ay para once may ma remove na Equipment ay lahat na releted ay ma remove
-//pero naka base siya collectionMapping
+// pero naka base siya collectionMapping
 exports.RemoverelatedData = async (req, res, next) => {
   const { equipmentID } = req.params; // Assuming equipmentID is passed as a parameter
 
@@ -300,10 +306,13 @@ exports.createtool = AsyncErrorHandler(async (req, res) => {
     },
     {
       $project: {
+        code: 1,
         Brand: 1,
         SerialNumber: 1,
         Specification: 1,
         status: 1,
+        remarks: 1,
+        DateAcquired: 1,
         CategoryName: {
           $ifNull: ["$CategoryData.CategoryName", "N/A"], // Use 'N/A' if CategoryName is missing
         },
@@ -328,11 +337,25 @@ exports.Updatetool = AsyncErrorHandler(async (req, res, next) => {
       .json({ status: "fail", message: "Invalid ID format" });
   }
 
-  // Update the tool
-  const updateTool = await tools.findByIdAndUpdate(req.params.id, req.body, {
-    new: true,
-    runValidators: true,
+  //  Filter out empty values - huwag i-update ang fields na walang value
+  const filteredBody = {};
+  Object.keys(req.body).forEach((key) => {
+    const value = req.body[key];
+    // Isama lang kung may value (hindi empty string, hindi null, hindi undefined)
+    if (value !== "" && value !== null && value !== undefined) {
+      filteredBody[key] = value;
+    }
   });
+
+  // Update the tool (gamit ang filtered body)
+  const updateTool = await tools.findByIdAndUpdate(
+    req.params.id,
+    filteredBody,
+    {
+      new: true,
+      runValidators: true,
+    }
+  );
 
   if (!updateTool) {
     return res.status(404).json({
@@ -362,10 +385,13 @@ exports.Updatetool = AsyncErrorHandler(async (req, res, next) => {
     },
     {
       $project: {
+        code: 1,
         Brand: 1,
         SerialNumber: 1,
         Specification: 1,
         status: 1,
+        remarks: 1,
+        DateAcquired: 1,
         CategoryName: {
           $ifNull: ["$CategoryData.CategoryName", "N/A"],
         },
@@ -480,11 +506,14 @@ exports.getSpecificEquipment = AsyncErrorHandler(async (req, res, next) => {
       $group: {
         _id: "$_id",
         DateTime: { $first: "$DateTime" },
+        code: { $first: "$code" },
         EquipmentName: { $first: "$EquipmentName" },
         Specification: { $first: "$Specification" },
         Brand: { $first: "$Brand" },
         status: { $first: "$status" },
         Category: { $first: "$Category" },
+        remarks: { $first: "$remarks" },
+        DateAcquired: { $first: "$DateAcquired" },
         LaboratoryName: {
           $first: { $ifNull: ["$LaboratoryData.LaboratoryName", "N/A"] },
         },
@@ -502,7 +531,7 @@ exports.getSpecificEquipment = AsyncErrorHandler(async (req, res, next) => {
   }
 
   // PDF Generation
-  const doc = new PDFDocument({ size: "A4", layout: "portrait", margin: 60 });
+  const doc = new PDFDocument({ size: "A4", layout: "landscape", margin: 60 });
 
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader(
@@ -546,13 +575,16 @@ exports.getSpecificEquipment = AsyncErrorHandler(async (req, res, next) => {
   // Table Setup
   const tableHeaders = [
     "Date",
+    "Code",
     "Brand",
     "Specification",
     "Status",
+    "Date Acquired",
+    "Remarks",
     "Laboratory",
     "Department",
   ];
-  const columnWidths = [80, 80, 100, 80, 80, 80];
+  const columnWidths = [65, 55, 55, 75, 55, 65, 65, 65, 65];
   const tableWidth = columnWidths.reduce((a, b) => a + b, 0);
   const pageWidth =
     doc.page.width - doc.page.margins.left - doc.page.margins.right;
@@ -563,7 +595,7 @@ exports.getSpecificEquipment = AsyncErrorHandler(async (req, res, next) => {
   let currentY = doc.y;
 
   // Table Headers
-  doc.font("Helvetica-Bold").fontSize(12);
+  doc.font("Helvetica-Bold").fontSize(10);
   tableHeaders.forEach((header, i) => {
     doc.text(
       header,
@@ -579,7 +611,7 @@ exports.getSpecificEquipment = AsyncErrorHandler(async (req, res, next) => {
     .lineTo(startXTable + tableWidth, currentY)
     .stroke();
   currentY += 5;
-  doc.font("Helvetica").fontSize(10);
+  doc.font("Helvetica").fontSize(9);
 
   // Data Rows
   Equipment.forEach((eq) => {
@@ -601,22 +633,33 @@ exports.getSpecificEquipment = AsyncErrorHandler(async (req, res, next) => {
         .lineTo(startXTable + tableWidth, currentY)
         .stroke();
       currentY += 5;
-      doc.font("Helvetica").fontSize(10);
+      doc.font("Helvetica").fontSize(9);
     }
 
     const formattedDate = eq.DateTime
       ? new Date(eq.DateTime).toLocaleDateString("en-US", {
-          year: "numeric",
-          month: "long",
-          day: "numeric",
-        })
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      })
+      : "N/A";
+
+    const formattedAcquired = eq.DateAcquired
+      ? new Date(eq.DateAcquired).toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      })
       : "N/A";
 
     const rowData = [
       formattedDate,
+      eq.code || "N/A",
       eq.Brand || "N/A",
       eq.Specification || "N/A",
       eq.status || "N/A",
+      formattedAcquired,
+      eq.remarks || "N/A",
       eq.LaboratoryName || "N/A",
       eq.Department || "N/A",
     ];
@@ -645,4 +688,208 @@ exports.getSpecificEquipment = AsyncErrorHandler(async (req, res, next) => {
     .text("Generated by EPDO", doc.page.margins.left, currentY + 10);
 
   doc.end();
+});
+
+exports.FindByCode = AsyncErrorHandler(async (req, res) => {
+  const { code } = req.params;
+  const userId = req.user?._id;
+
+  if (!userId) {
+    return res.status(400).json({
+      status: "fail",
+      message: "User ID not found in request.",
+    });
+  }
+
+  if (!code) {
+    return res.status(400).json({
+      status: "fail",
+      message: "Please provide a code",
+    });
+  }
+
+  const userObjectId = new mongoose.Types.ObjectId(userId);
+
+  const result = await Assign.aggregate([
+    // 1) Laboratory — Encharge = user
+    {
+      $lookup: {
+        from: "laboratories",
+        let: { labId: "$Laboratory" },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ["$_id", "$$labId"] },
+                  { $eq: ["$Encharge", userObjectId] },
+                ],
+              },
+            },
+          },
+          { $project: { _id: 1 } },
+        ],
+        as: "LaboratoryData",
+      },
+    },
+    { $unwind: "$LaboratoryData" }, // kung hindi Encharge → tanggal agad
+
+    // 2) Equipment lookup
+    {
+      $lookup: {
+        from: "equipment",
+        localField: "Equipments",
+        foreignField: "_id",
+        as: "EquipmentData",
+      },
+    },
+    { $unwind: "$EquipmentData" },
+
+    // 3) Match sa code
+    {
+      $match: { "EquipmentData.code": code },
+    },
+
+    // 4) FINAL OUTPUT — dating flat shape
+    {
+      $project: {
+        _id: "$EquipmentData._id",
+        code: "$EquipmentData.code",
+        Brand: "$EquipmentData.Brand",
+        DateAcquired: "$EquipmentData.DateAcquired",
+        Category: "$EquipmentData.Category",
+        SerialNumber:"$EquipmentData.SerialNumber"
+      },
+    },
+
+    { $limit: 1 },
+  ]);
+
+  if (!result || result.length === 0) {
+    return res.status(404).json({
+      status: "fail",
+      message: `No equipment found with code: ${code} in your assigned laboratory.`,
+    });
+  }
+
+  res.status(200).json({
+    status: "success",
+    data: result[0],
+  });
+});
+
+// src/Controllers/PMS002Controller.js
+
+exports.FindByEquipment = AsyncErrorHandler(async (req, res) => {
+    const userId = req.user?._id;
+
+    if (!userId) {
+        return res.status(400).json({
+            status: "fail",
+            message: "User ID not found in request.",
+        });
+    }
+
+    const userObjectId = new mongoose.Types.ObjectId(userId);
+
+    // ============================================================
+    // 1️⃣ Hanapin ang Laboratory ng user
+    // ============================================================
+    const laboratory = await Laboratory.aggregate([
+        {
+            $match: { Encharge: userObjectId },
+        },
+        {
+            $project: {
+                _id: 1,
+                LaboratoryName: { $ifNull: ["$LaboratoryName", "N/A"] },
+            },
+        },
+        { $limit: 1 },
+    ]);
+
+    if (!laboratory || laboratory.length === 0) {
+        return res.status(404).json({
+            status: "fail",
+            message: "No laboratory found for this user.",
+        });
+    }
+
+    const laboratoryId = laboratory[0]._id;
+
+    // ============================================================
+    // 2️⃣ Query flags
+    // ============================================================
+    const { from, to, all } = req.query;
+
+    const showAll = all === "true" || all === "1";
+
+    // ✅ Kung walang from, walang to, at hindi 'all' → empty
+    if (!showAll && !from && !to) {
+        return res.status(200).json({
+            status: "success",
+            pmsRecord: [], // ✅ empty array
+            data: {
+                _id: laboratoryId,
+                LaboratoryName: laboratory[0].LaboratoryName,
+            },
+        });
+    }
+
+    // ============================================================
+    // 3️⃣ Buuin ang date filter (kung may from/to)
+    // ============================================================
+    const dateFilter = {};
+
+    if (!showAll && (from || to)) {
+        dateFilter.createdAt = {};
+
+        if (from) {
+            const fromDate = new Date(from);
+            if (isNaN(fromDate.getTime())) {
+                return res.status(400).json({
+                    status: "fail",
+                    message: "Invalid 'from' date format. Use YYYY-MM-DD.",
+                });
+            }
+            fromDate.setHours(0, 0, 0, 0);
+            dateFilter.createdAt.$gte = fromDate;
+        }
+
+        if (to) {
+            const toDate = new Date(to);
+            if (isNaN(toDate.getTime())) {
+                return res.status(400).json({
+                    status: "fail",
+                    message: "Invalid 'to' date format. Use YYYY-MM-DD.",
+                });
+            }
+            toDate.setHours(23, 59, 59, 999);
+            dateFilter.createdAt.$lte = toDate;
+        }
+    }
+
+    // ============================================================
+    // 4️⃣ Kunin ang PMS records
+    //    - Kapag showAll → walang date filter (lahat)
+    //    - Kapag may from/to → filtered
+    // ============================================================
+    const pmsRecord = await PMSMaintenanceController.find({
+        laboratoryId,
+        ...dateFilter,
+    })
+        .populate("equipmentId")
+        .sort({ createdAt: -1 });
+
+    // ============================================================
+    // 5️⃣ Response
+    // ============================================================
+    res.status(200).json({
+        status: "success",
+        pmsRecord,
+        data: {
+            _id: laboratoryId,
+            LaboratoryName: laboratory[0].LaboratoryName,
+        },
+    });
 });

@@ -15,6 +15,10 @@ import { DepartmentDisplayProvider } from './contexts/DepartmentContext/Departme
 import { IncomingDisplayProvider } from './contexts/ProcessIncomingRequest/IncomingRequestContext.jsx'
 import { StatisticsProvider } from './contexts/StatisticContext/statisticalContext.jsx'
 import SocketListener from './SocketListener.jsx'
+import { PMSProvider } from './contexts/PMS/pmsContext.jsx'
+import PMS002Provider from './contexts/PMS/pmsContext002.jsx'
+import PMS003Provider from './contexts/PMS/pmsContext003.jsx'
+import PMS006Provider from './contexts/PMS/pmsContext006.jsx'
 import {
   DeleteAssignProvider,
   LaboratorytProvider
@@ -28,48 +32,66 @@ import { ProblemProvider } from './contexts/ProblemContext/ProblemContext.jsx'
 
 import { HistoryProvider } from './contexts/HistoryContext/HistoryContext.jsx'
 
+import { MaintenanceRecordProvider } from './contexts/PMSMaintenanceRecord/PMSMaintenanceRecord.jsx'
+import PMS004Provider from './contexts/PMS/pmsContext004.jsx'
+import PMS005Provider from './contexts/PMS/pmsContext005.jsx'
+
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <AuthProvider>
-      <HistoryProvider>
-        <ProblemProvider>
-          <StatisticsProvider>
-            <MessagePostProvider>
-              <MaintenanceRequestProvider>
-                <IncomingDisplayProvider>
-                  <DepartmentDisplayProvider>
-                    <TypeofMaintenanceProvider>
-                      <AssignProvider>
-                        <UserProvider>
-                          <FilterSpecificAssignProvider>
-                            <LaboratorytProvider>
-                              <LaboratoryProvider>
-                                {/*  Wrap EquipmentProvider with EquipmentDataProvider */}
-                                <EquipmentProvider>
-                                  <EquipmentProvider>
-                                    <AddAssignProvider>
-                                      <DeleteAssignProvider>
-                                        <AssignLabProvider>
-                                          <App />
-                                          <SocketListener />
-                                        </AssignLabProvider>
-                                      </DeleteAssignProvider>
-                                    </AddAssignProvider>
-                                  </EquipmentProvider>
-                                </EquipmentProvider>
-                              </LaboratoryProvider>
-                            </LaboratorytProvider>
-                          </FilterSpecificAssignProvider>
-                        </UserProvider>
-                      </AssignProvider>
-                    </TypeofMaintenanceProvider>
-                  </DepartmentDisplayProvider>
-                </IncomingDisplayProvider>
-              </MaintenanceRequestProvider>
-            </MessagePostProvider>
-          </StatisticsProvider>
-        </ProblemProvider>
-      </HistoryProvider>
+      <PMS006Provider>
+        <PMS005Provider>
+          <PMS004Provider>
+            <PMS003Provider>
+              <PMS002Provider>
+                <PMSProvider>
+                  <MaintenanceRecordProvider>
+                    <HistoryProvider>
+                      <ProblemProvider>
+                        <StatisticsProvider>
+                          <MessagePostProvider>
+                            <MaintenanceRequestProvider>
+                              <IncomingDisplayProvider>
+                                <DepartmentDisplayProvider>
+                                  <TypeofMaintenanceProvider>
+                                    <AssignProvider>
+                                      <UserProvider>
+                                        <FilterSpecificAssignProvider>
+                                          <LaboratorytProvider>
+                                            <LaboratoryProvider>
+                                              {/*  Wrap EquipmentProvider with EquipmentDataProvider */}
+                                              <EquipmentProvider>
+                                                <EquipmentProvider>
+                                                  <AddAssignProvider>
+                                                    <DeleteAssignProvider>
+                                                      <AssignLabProvider>
+                                                        <App />
+                                                        <SocketListener />
+                                                      </AssignLabProvider>
+                                                    </DeleteAssignProvider>
+                                                  </AddAssignProvider>
+                                                </EquipmentProvider>
+                                              </EquipmentProvider>
+                                            </LaboratoryProvider>
+                                          </LaboratorytProvider>
+                                        </FilterSpecificAssignProvider>
+                                      </UserProvider>
+                                    </AssignProvider>
+                                  </TypeofMaintenanceProvider>
+                                </DepartmentDisplayProvider>
+                              </IncomingDisplayProvider>
+                            </MaintenanceRequestProvider>
+                          </MessagePostProvider>
+                        </StatisticsProvider>
+                      </ProblemProvider>
+                    </HistoryProvider>
+                  </MaintenanceRecordProvider>
+                </PMSProvider>
+              </PMS002Provider>
+            </PMS003Provider>
+          </PMS004Provider>
+        </PMS005Provider>
+      </PMS006Provider>
     </AuthProvider>
   </StrictMode>,
 )

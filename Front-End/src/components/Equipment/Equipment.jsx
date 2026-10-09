@@ -2,7 +2,7 @@ import React, { useState, useEffect, useContext } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { FaTimes, FaTools, FaBarcode, FaTags, FaInfoCircle, FaChevronDown, FaChevronUp, FaSave } from "react-icons/fa";
+import { FaTimes, FaTools, FaBarcode, FaTags, FaInfoCircle, FaChevronDown, FaChevronUp, FaSave, FaCalendarAlt, FaStickyNote, FaHashtag } from "react-icons/fa";
 import { EquipmentContext } from "../CountContext"; 
 import StatusModal from "../ReusableComponent/SuccessandFailedModal";
 import { EquipmentDataContext } from "../../contexts/EquipmentContext/EquipmentContext";
@@ -19,10 +19,13 @@ function Equipment({ isOpen, onClose, equipment, onAddEquipment, onEditEquipment
   const token = localStorage.getItem("token");
 
   const [values, setValues] = useState({
+    code: "",
     Category: "",
     Specification: "",
     Brand: "",
     SerialNumber: "",
+    remarks: "",
+    DateAcquired: "",
   });
 
   useEffect(() => {
@@ -30,10 +33,15 @@ function Equipment({ isOpen, onClose, equipment, onAddEquipment, onEditEquipment
       checkTokenAndFetchCategories();
       if (equipment) {
         setValues({
+          code: equipment.code || "",
           Brand: equipment.Brand || "",
           SerialNumber: equipment.SerialNumber || "",
           Specification: equipment.Specification || "",
           Category: equipment.CategoryId || "",
+          remarks: equipment.remarks || "",
+          DateAcquired: equipment.DateAcquired
+            ? new Date(equipment.DateAcquired).toISOString().split("T")[0]
+            : "",
         });
       } else {
         resetForm();
@@ -42,7 +50,15 @@ function Equipment({ isOpen, onClose, equipment, onAddEquipment, onEditEquipment
   }, [equipment, isOpen]);
 
   const resetForm = () => {
-    setValues({ Category: "", Specification: "", Brand: "", SerialNumber: "" });
+    setValues({
+      code: "",
+      Category: "",
+      Specification: "",
+      Brand: "",
+      SerialNumber: "",
+      remarks: "",
+      DateAcquired: "",
+    });
   };
 
   const checkTokenAndFetchCategories = async () => {
@@ -177,6 +193,37 @@ function Equipment({ isOpen, onClose, equipment, onAddEquipment, onEditEquipment
                   />
                 </div>
               </div>
+
+              {/* ✅ NEW: Code */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Equipment Code</label>
+                <div className="relative group">
+                  <FaHashtag className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-[#1e3a8a]" />
+                  <input 
+                    type="text" 
+                    name="code" 
+                    value={values.code} 
+                    onChange={handleInput} 
+                    placeholder="e.g. EQ-0001"
+                    className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-blue-600/5 focus:border-[#1e3a8a] outline-none font-bold text-slate-700 text-sm transition-all" 
+                  />
+                </div>
+              </div>
+
+              {/* ✅ NEW: Date Acquired */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Date Acquired</label>
+                <div className="relative group">
+                  <FaCalendarAlt className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-[#1e3a8a]" />
+                  <input 
+                    type="date" 
+                    name="DateAcquired" 
+                    value={values.DateAcquired} 
+                    onChange={handleInput} 
+                    className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-blue-600/5 focus:border-[#1e3a8a] outline-none font-bold text-slate-700 text-sm transition-all" 
+                  />
+                </div>
+              </div>
             </div>
 
             {/* Category Custom Dropdown */}
@@ -228,6 +275,22 @@ function Equipment({ isOpen, onClose, equipment, onAddEquipment, onEditEquipment
                   onChange={handleInput} 
                   placeholder="Describe technical details..." 
                   rows="3"
+                  className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-blue-600/5 focus:border-[#1e3a8a] outline-none font-bold text-slate-700 text-sm transition-all resize-none" 
+                />
+              </div>
+            </div>
+
+            {/* ✅ NEW: Remarks */}
+            <div className="space-y-1">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Remarks</label>
+              <div className="relative group">
+                <FaStickyNote className="absolute left-4 top-4 text-slate-300 group-focus-within:text-[#1e3a8a]" />
+                <textarea 
+                  name="remarks" 
+                  value={values.remarks} 
+                  onChange={handleInput} 
+                  placeholder="Additional notes..." 
+                  rows="2"
                   className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-blue-600/5 focus:border-[#1e3a8a] outline-none font-bold text-slate-700 text-sm transition-all resize-none" 
                 />
               </div>

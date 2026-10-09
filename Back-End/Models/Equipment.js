@@ -3,6 +3,10 @@ const mongoose = require("mongoose");
 // Define Equipment Schema and Model
 const EquipmentSchema = new mongoose.Schema(
   {
+    code: {
+      type: String,
+      required: [true, "Please input a Brand!"],
+    },
     DateTime: {
       type: Date,
       default: () => new Date(), // Automatically set current date and time
@@ -31,8 +35,11 @@ const EquipmentSchema = new mongoose.Schema(
       default: "Active",
     },
     remarks: {
-     type: String
+      type: String
     },
+    DateAcquired: {
+      type: Date
+    }
   },
   { timestamps: true },
 );

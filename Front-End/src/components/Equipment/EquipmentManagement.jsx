@@ -3,7 +3,8 @@ import { EquipmentDataContext } from "../../contexts/EquipmentContext/EquipmentC
 import {
   Plus, ChevronLeft, ChevronRight, Edit,
   Trash2, RefreshCw, PlusCircle, Search,
-  Package, Tag, Barcode, Info, ClipboardList
+  Package, Tag, Barcode, Info, ClipboardList,
+  Hash, Calendar
 } from "lucide-react";
 import EquipmentformModal from "./Equipment";
 import RetrieveForm from "./Retrieve";
@@ -23,7 +24,7 @@ const EquipmentForm = () => {
 
   const { view } = useContext(MaintenanceRequestContext)
 
-  console.log("view", view)
+  console.log("equipment", equipment)
 
   const [searchTerm, setSearchTerm] = useState("");
   const [isFormModalOpen, setFormModalOpen] = useState(false);
@@ -51,6 +52,7 @@ const EquipmentForm = () => {
   const filteredEquipment = equipment?.filter((equip) =>
     (equip.SerialNumber?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
     (equip.Brand?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
+    (equip.code?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
     (equip.DepartmentName?.toLowerCase() || "").includes(searchTerm.toLowerCase())
   ) || [];
 
@@ -113,6 +115,20 @@ const EquipmentForm = () => {
     fetchEquipmentData();
   };
 
+  // ✅ Helper: i-format ang DateAcquired
+  const formatDate = (dateValue) => {
+    if (!dateValue) return "N/A";
+    try {
+      return new Date(dateValue).toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
+    } catch {
+      return "N/A";
+    }
+  };
+
   return (
     <div className="w-full bg-white dark:bg-slate-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 flex flex-col">
       {/* HEADER */}
@@ -147,7 +163,7 @@ const EquipmentForm = () => {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500" size={16} />
           <input
             type="text"
-            placeholder="Search equipment by serial, brand, or department..."
+            placeholder="Search equipment by serial, brand, code, or department..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full pl-10 pr-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
@@ -167,38 +183,52 @@ const EquipmentForm = () => {
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-gray-300 text-xs uppercase tracking-wider font-semibold border-b border-gray-200 dark:border-gray-700">
-              <th className="px-6 py-3">
+              {/* ✅ NEW: Code Column */}
+              <th className="px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <Hash size={12} />
+                  Code
+                </div>
+              </th>
+              <th className="px-4 py-3">
                 <div className="flex items-center gap-2">
                   <Barcode size={12} />
                   Serial Number
                 </div>
               </th>
-              <th className="px-6 py-3">
+              <th className="px-4 py-3">
                 <div className="flex items-center gap-2">
                   <Tag size={12} />
                   Brand & Specs
                 </div>
               </th>
-              <th className="px-6 py-3">
+              <th className="px-4 py-3">
                 <div className="flex items-center gap-2">
                   <ClipboardList size={12} />
                   Location
                 </div>
               </th>
-              <th className="px-6 py-3 text-center">
+              {/* ✅ NEW: Date Acquired Column */}
+              <th className="px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <Calendar size={12} />
+                  Date Acquired
+                </div>
+              </th>
+              <th className="px-4 py-3 text-center">
                 <div className="flex items-center justify-center gap-2">
                   <Info size={12} />
                   Status
                 </div>
               </th>
-              <th className="px-6 py-3">Remarks</th>
-              <th className="px-6 py-3 text-center">Actions</th>
+              <th className="px-4 py-3">Remarks</th>
+              <th className="px-4 py-3 text-center">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700 text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-slate-900">
             {paginatedEquipment.length === 0 ? (
               <tr>
-                <td colSpan={6} className="py-12 text-center text-gray-400 dark:text-gray-500 italic">
+                <td colSpan={8} className="py-12 text-center text-gray-400 dark:text-gray-500 italic">
                   {searchTerm ? 'No matching equipment found.' : 'No equipment found. Click "Add Equipment" to get started.'}
                 </td>
               </tr>
@@ -208,23 +238,37 @@ const EquipmentForm = () => {
                   key={`${item._id}-${item.SerialNumber || index}-${index}`}
                   className="hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
                 >
-                  <td className="px-6 py-4 font-mono text-xs text-gray-600 dark:text-gray-400">
+                  {/* ✅ NEW: Code Cell */}
+                  <td className="px-4 py-4">
+                    <span className="font-mono text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 px-2 py-1 rounded-md">
+                      {item.code || 'N/A'}
+                    </span>
+                  </td>
+
+                  <td className="px-4 py-4 font-mono text-xs text-gray-600 dark:text-gray-400">
                     {item.SerialNumber || 'N/A'}
                   </td>
 
-                  <td className="px-6 py-4">
+                  <td className="px-4 py-4">
                     <div className="font-medium text-gray-900 dark:text-white">{item.Brand || 'N/A'}</div>
                     <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[150px]" title={item.Specification}>
                       {item.Specification || 'N/A'}
                     </div>
                   </td>
 
-                  <td className="px-6 py-4">
+                  <td className="px-4 py-4">
                     <div className="text-sm text-gray-700 dark:text-gray-300">{item.DepartmentName || "N/A"}</div>
                     <div className="text-xs text-gray-400 dark:text-gray-500">{item.LaboratoryName || "No Lab"}</div>
                   </td>
 
-                  <td className="px-6 py-4 text-center">
+                  {/* ✅ NEW: Date Acquired Cell */}
+                  <td className="px-4 py-4">
+                    <span className="text-xs text-gray-600 dark:text-gray-400">
+                      {formatDate(item.DateAcquired)}
+                    </span>
+                  </td>
+
+                  <td className="px-4 py-4 text-center">
                     <span className={`px-2.5 py-1 rounded-full text-xs font-semibold uppercase ${item.status === "Available"
                         ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
                         : item.status === "In Use"
@@ -237,13 +281,13 @@ const EquipmentForm = () => {
                     </span>
                   </td>
 
-                  <td className="px-6 py-4">
-                    <span className="text-xs text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-slate-700 px-2 py-1 rounded-md inline-block max-w-[120px] truncate">
+                  <td className="px-4 py-4">
+                    <span className="text-xs text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-slate-700 px-2 py-1 rounded-md inline-block max-w-[120px] truncate" title={item.remarks}>
                       {item.remarks || "No remarks"}
                     </span>
                   </td>
 
-                  <td className="px-6 py-4 text-center">
+                  <td className="px-4 py-4 text-center">
                     <div className="flex justify-center items-center gap-2">
                       <button
                         onClick={() => { setSelectedEquipment(item); setFormModalOpen(true); }}

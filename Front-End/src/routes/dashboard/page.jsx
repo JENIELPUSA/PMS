@@ -14,11 +14,11 @@ import { IncomingDisplayContext } from "../../contexts/ProcessIncomingRequest/In
 
 // React Hooks
 import { useInView } from "react-intersection-observer";
-import { motion, AnimatePresence } from "framer-motion";
 import { useLocation, useNavigate } from "react-router-dom";
 import { StatisticsContext } from "../../contexts/StatisticContext/statisticalContext";
 import { MaintenanceRequestContext } from "../../contexts/MaintenanceRequestContext/MaintenanceRequestContext";
 import { UserDataContext } from "../../contexts/UserContext/UserContext";
+import Authorizedpage from "../../components/Authorized/authorizepage";
 
 // Icons
 import { FaFlask, FaTerminal, FaUserEdit, FaChevronRight, FaTools, FaDownload, FaPrint, FaClipboardList, FaWrench, FaClock, FaCheckCircle, FaExclamationTriangle, FaTimes, FaUserPlus, FaCheck } from "react-icons/fa";
@@ -34,11 +34,183 @@ import SupplyDashboard from "./dashboardRole/SupplyDashboard";
 
 import ReassignModal from './dashboardRole/ReassignModal';
 
+/* ============================================================ */
+/*  SKELETON PRIMITIVES                                         */
+/* ============================================================ */
+const SkeletonPulse = ({ className = "" }) => (
+    <div className={`animate-pulse bg-slate-200 rounded-lg ${className}`} />
+);
+
+const SkeletonAvatar = ({ size = 80 }) => (
+    <div
+        className="animate-pulse bg-slate-200 rounded-full"
+        style={{ width: size, height: size }}
+    />
+);
+
+const SkeletonCardBlock = ({ className = "", children }) => (
+    <div className={`bg-white rounded-[2rem] shadow-lg border border-gray-200 ${className}`}>
+        {children}
+    </div>
+);
+
+/* ---------- Technicians Avatar Carousel Skeleton ---------- */
+const TechniciansSkeleton = () => (
+    <SkeletonCardBlock className="p-6">
+        <div className="flex items-center gap-3 mb-6 pb-4 border-b border-gray-200">
+            <SkeletonPulse className="w-11 h-11 rounded-xl" />
+            <div className="space-y-2 flex-1">
+                <SkeletonPulse className="h-3 w-64" />
+                <SkeletonPulse className="h-2 w-80" />
+            </div>
+            <SkeletonPulse className="h-5 w-32 rounded-full" />
+        </div>
+
+        <div className="flex gap-6 overflow-hidden">
+            {Array.from({ length: 6 }).map((_, i) => (
+                <div
+                    key={i}
+                    className="flex flex-col items-center flex-shrink-0"
+                    style={{ width: `${100 / 6}%` }}
+                >
+                    <SkeletonAvatar size={80} />
+                    <SkeletonPulse className="h-3 w-20 mt-3" />
+                    <SkeletonPulse className="h-2 w-14 mt-2" />
+                </div>
+            ))}
+        </div>
+    </SkeletonCardBlock>
+);
+
+/* ---------- Chart Panel Skeleton ---------- */
+const ChartPanelSkeleton = ({ height = 300, hasToggle = false }) => (
+    <SkeletonCardBlock className="p-6">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 pb-4 border-b border-gray-200">
+            <div className="flex items-center gap-3">
+                <SkeletonPulse className="w-11 h-11 rounded-xl" />
+                <div className="space-y-2">
+                    <SkeletonPulse className="h-3 w-52" />
+                    <SkeletonPulse className="h-2 w-64" />
+                </div>
+            </div>
+            {hasToggle && (
+                <div className="flex gap-1 bg-white p-1 rounded-xl border border-gray-200">
+                    <SkeletonPulse className="h-7 w-16 rounded-lg" />
+                    <SkeletonPulse className="h-7 w-16 rounded-lg" />
+                </div>
+            )}
+        </div>
+
+        <div className="relative" style={{ height }}>
+            <SkeletonPulse className="w-full h-full rounded-xl" />
+            <div className="absolute inset-0 flex flex-col justify-between p-4 pointer-events-none">
+                {Array.from({ length: 4 }).map((_, i) => (
+                    <SkeletonPulse key={i} className="h-2 w-10" />
+                ))}
+            </div>
+        </div>
+    </SkeletonCardBlock>
+);
+
+/* ---------- Pie Charts Section Skeleton ---------- */
+const PieChartsSkeleton = () => (
+    <SkeletonCardBlock className="p-6">
+        <div className="flex items-center gap-3 mb-4 pb-4 border-b border-gray-200">
+            <SkeletonPulse className="w-11 h-11 rounded-xl" />
+            <SkeletonPulse className="h-3 w-56" />
+            <SkeletonPulse className="ml-auto h-5 w-24 rounded-full" />
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+            {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="space-y-3">
+                    <SkeletonPulse className="h-64 w-full rounded-2xl" />
+                    <SkeletonPulse className="h-3 w-32 mx-auto" />
+                </div>
+            ))}
+        </div>
+    </SkeletonCardBlock>
+);
+
+/* ---------- Chart Toggle Skeleton ---------- */
+const ChartToggleSkeleton = () => (
+    <div className="flex flex-wrap justify-between items-center gap-4">
+        <div className="flex gap-2 bg-white p-1.5 rounded-xl shadow-md border border-gray-200">
+            <SkeletonPulse className="h-10 w-32 rounded-lg" />
+            <SkeletonPulse className="h-10 w-32 rounded-lg" />
+        </div>
+        <div className="flex gap-1.5 bg-white p-1.5 rounded-xl shadow-md border border-gray-200">
+            {Array.from({ length: 4 }).map((_, i) => (
+                <SkeletonPulse key={i} className="h-8 w-24 rounded-lg" />
+            ))}
+        </div>
+    </div>
+);
+
+/* ---------- Full Admin Dashboard Skeleton ---------- */
+const AdminDashboardSkeleton = () => (
+    <div className="space-y-8">
+        <TechniciansSkeleton />
+        <ChartToggleSkeleton />
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            <div className="xl:col-span-2">
+                <ChartPanelSkeleton height={340} hasToggle />
+            </div>
+        </div>
+        <PieChartsSkeleton />
+    </div>
+);
+
+/* ---------- Generic Dashboard Role Skeleton ---------- */
+const RoleDashboardSkeleton = () => (
+    <div className="space-y-8">
+        <ChartToggleSkeleton />
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            <ChartPanelSkeleton height={300} />
+            <ChartPanelSkeleton height={300} />
+        </div>
+        <PieChartsSkeleton />
+    </div>
+);
+
+/* ---------- Laboratory View Skeleton ---------- */
+const LaboratoryViewSkeleton = () => (
+    <div className="space-y-6">
+        <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-blue-700/20 relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-2 h-full bg-yellow-400" />
+            <div className="space-y-4">
+                <SkeletonPulse className="h-6 w-64" />
+                <SkeletonPulse className="h-4 w-96" />
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
+                    {Array.from({ length: 3 }).map((_, i) => (
+                        <SkeletonPulse key={i} className="h-24 w-full rounded-2xl" />
+                    ))}
+                </div>
+            </div>
+        </div>
+    </div>
+);
+
+/* ---------- Logout Redirect Screen ---------- */
+const LoggingOutScreen = () => (
+    <div className="flex h-screen w-full items-center justify-center bg-gray-50">
+        <div className="text-center">
+            <div className="w-16 h-16 border-4 border-blue-700 border-t-yellow-400 rounded-full animate-spin mx-auto mb-4" />
+            <p className="text-blue-700 font-bold uppercase tracking-widest text-sm">
+                Logging out...
+            </p>
+        </div>
+    </div>
+);
+
+/* ============================================================ */
+/*  DASHBOARD                                                   */
+/* ============================================================ */
 function Dashboard() {
     const ref = useRef(null);
     const isInView = useInView(ref, { once: true });
     const { laboratoryData } = useContext(FilterSpecificAssignContext);
-    const { role } = useContext(AuthContext);
+    const { role, logout } = useContext(AuthContext);
     const { fetchIncomingData } = useContext(IncomingDisplayContext);
     const location = useLocation();
     const navigate = useNavigate();
@@ -54,6 +226,15 @@ function Dashboard() {
     const isDark = theme === "dark";
 
     // ==========================================
+    // LOADING STATE PER ROLE
+    // ==========================================
+    const [statsLoading, setStatsLoading] = useState(true);
+    const [incomingLoading, setIncomingLoading] = useState(false);
+
+    // ✅ BAGO: State para i-track kung nag-logout na (para hindi i-render ang Authorizedpage)
+    const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+    // ==========================================
     // USE REFS PARA I-STABILIZE ANG FUNCTIONS
     // ==========================================
     const fetchStatisticsDataRef = useRef(fetchStatisticsData);
@@ -62,7 +243,9 @@ function Dashboard() {
     const fetchIncomingDataRef = useRef(fetchIncomingData);
     const hasFetchedRef = useRef(false);
 
-    // Update refs when functions change
+    // ✅ BAGO: Ref para hindi ma-trigger ang logout nang paulit-ulit
+    const hasLoggedOutRef = useRef(false);
+
     useEffect(() => {
         fetchStatisticsDataRef.current = fetchStatisticsData;
         fetchTechnicianStatisticsRef.current = fetchTechnicianStatistics;
@@ -79,7 +262,7 @@ function Dashboard() {
     }, [navigate]);
 
     // ==========================================
-    // ROLE-BASED STATISTICS FETCHING - FIXED
+    // ROLE-BASED STATISTICS FETCHING
     // ==========================================
     useEffect(() => {
         let isMounted = true;
@@ -89,6 +272,8 @@ function Dashboard() {
 
         const fetchStatistics = async () => {
             try {
+                setStatsLoading(true);
+
                 if (role === "Admin") {
                     console.log("📊 Fetching Admin Statistics...");
                     await Promise.all([
@@ -108,12 +293,14 @@ function Dashboard() {
                 hasFetchedRef.current = true;
             } catch (error) {
                 console.error(`❌ Error fetching ${role} statistics:`, error);
+            } finally {
+                if (isMounted) setStatsLoading(false);
             }
         };
 
-        // Reset fetch flag kapag nagbago ang role
         if (role) {
             hasFetchedRef.current = false;
+            setStatsLoading(true);
         }
 
         timeoutId = setTimeout(() => {
@@ -128,10 +315,10 @@ function Dashboard() {
                 clearTimeout(timeoutId);
             }
         };
-    }, [role]); // ✅ role LANG ang dependency
+    }, [role]);
 
     // ==========================================
-    // ADMIN - Fetch Incoming Data - FIXED
+    // ADMIN - Fetch Incoming Data
     // ==========================================
     useEffect(() => {
         let isMounted = true;
@@ -139,9 +326,14 @@ function Dashboard() {
 
         if (role === "Admin") {
             console.log("📥 Fetching Admin Incoming Data...");
-            timeoutId = setTimeout(() => {
+            setIncomingLoading(true);
+            timeoutId = setTimeout(async () => {
                 if (isMounted) {
-                    fetchIncomingDataRef.current();
+                    try {
+                        await fetchIncomingDataRef.current();
+                    } finally {
+                        if (isMounted) setIncomingLoading(false);
+                    }
                 }
             }, 200);
         }
@@ -152,65 +344,138 @@ function Dashboard() {
                 clearTimeout(timeoutId);
             }
         };
-    }, [role]); // ✅ role LANG ang dependency
+    }, [role]);
+
+    const isDashboardLoading =
+        statsLoading || (role === "Admin" && incomingLoading);
+
+    // ==========================================
+    // ✅ BAGO: DIRECT LOGOUT KAPAG WALANG SIDEBAR
+    // Para sa Admin, Technician, at Supply roles
+    // Hindi na ipapakita ang Authorizedpage
+    // ==========================================
+    useEffect(() => {
+        const rolesRequiringSidebar = ["Admin", "Technician", "Supply"];
+
+        // Skip kung hindi kasama sa roles o kung nag-load pa lang
+        if (!rolesRequiringSidebar.includes(role)) return;
+        if (isDashboardLoading) return;
+        if (hasLoggedOutRef.current) return;
+
+        const checkSidebarAndLogout = () => {
+            // Hanapin ang sidebar sa DOM
+            const sidebar =
+                document.getElementById("main-sidebar") ||
+                document.getElementById("sidebar") ||
+                document.querySelector('aside[data-sidebar="true"]') ||
+                document.querySelector('aside.sidebar') ||
+                document.querySelector('nav[role="navigation"]') ||
+                document.querySelector('[class*="sidebar"]');
+
+            if (!sidebar) {
+                console.warn(`⚠️ Walang sidebar para sa role: ${role}. Direct logout...`);
+                hasLoggedOutRef.current = true;
+
+                // ✅ Ipakita ang logging out screen (hindi na i-render ang Authorizedpage)
+                setIsLoggingOut(true);
+
+                // I-clear ang auth data at i-redirect
+                try {
+                    if (typeof logout === "function") {
+                        logout();
+                    } else {
+                        localStorage.removeItem("token");
+                        localStorage.removeItem("authToken");
+                        localStorage.removeItem("user");
+                        sessionStorage.clear();
+                        navigate("/login", { replace: true });
+                    }
+                } catch (err) {
+                    console.error("❌ Error sa auto logout:", err);
+                    localStorage.clear();
+                    sessionStorage.clear();
+                    navigate("/login", { replace: true });
+                }
+            }
+        };
+
+        // Hintayin ang DOM na mag-render bago i-check
+        const timer = setTimeout(checkSidebarAndLogout, 500);
+        return () => clearTimeout(timer);
+    }, [role, isDashboardLoading, logout, navigate]);
+
+    // ✅ BAGO: Kung nag-logout na, ipakita lang ang LoggingOutScreen
+    // Hindi na i-render ang buong dashboard at Authorizedpage
+    if (isLoggingOut) {
+        return <LoggingOutScreen />;
+    }
 
     return (
-        <div className="flex h-screen w-full bg-white dark:bg-slate-900 overflow-hidden font-poppins">
+        <div className="flex h-screen w-full bg-white overflow-hidden font-poppins">
             <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
-                <main className="flex-1 overflow-y-auto custom-scrollbar bg-gray-50 dark:bg-slate-800">
-                    <motion.div
+                <main className="flex-1 overflow-y-auto custom-scrollbar bg-gray-50">
+                    <div
                         ref={ref}
-                        initial={{ opacity: 0, y: 15 }}
-                        animate={isInView ? { opacity: 1, y: 0 } : {}}
-                        transition={{ duration: 0.5 }}
-                        className="p-4 sm:p-6 lg:p-8"
+                        className={`p-4 sm:p-6 lg:p-8 transition-all duration-500 ease-out ${isInView ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
+                            }`}
                     >
-                        <DashboardBanner role={role} laboratory={laboratory} />
-
                         <div className="mt-2">
-                            <AnimatePresence mode="wait">
-                                {laboratory ? (
-                                    <motion.div
-                                        key="lab-view"
-                                        initial={{ opacity: 0, x: 20 }}
-                                        animate={{ opacity: 1, x: 0 }}
-                                        exit={{ opacity: 0, x: -20 }}
-                                    >
+                            {laboratory ? (
+                                <div className="animate-[fadeIn_0.3s_ease-out]">
+                                    {isDashboardLoading ? (
+                                        <LaboratoryViewSkeleton />
+                                    ) : (
                                         <LaboratoryView laboratory={laboratory} />
-                                    </motion.div>
-                                ) : (
-                                    <motion.div
-                                        key="dash-view"
-                                        initial={{ opacity: 0 }}
-                                        animate={{ opacity: 1 }}
-                                        exit={{ opacity: 0 }}
-                                        className="space-y-1"
-                                    >
-                                        <div className="grid grid-cols-1">
+                                    )}
+                                </div>
+                            ) : (
+                                <div className="space-y-1">
+                                    <div className="grid grid-cols-1">
+                                        {isDashboardLoading ? (
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                                {Array.from({ length: 4 }).map((_, i) => (
+                                                    <SkeletonPulse
+                                                        key={i}
+                                                        className="h-32 w-full rounded-2xl"
+                                                    />
+                                                ))}
+                                            </div>
+                                        ) : (
                                             <DashboardCard
                                                 Laboratory={laboratoryData}
                                                 statisticsData={statisticsData}
                                                 technicianStats={technicianStats}
                                                 supplyStatistics={supplyStatistics}
                                             />
-                                        </div>
-
-                                        {role === "Admin" && (
-                                            <AdminDashboard statisticsData={statisticsData} />
                                         )}
+                                    </div>
 
-                                        {role === "User" && (
-                                            <UserDashboard onSelect={handleSelectDisplay} laboratoryData={laboratoryData} />
-                                        )}
+                                    {isDashboardLoading ? (
+                                        <>
+                                            {role === "Admin" && <AdminDashboardSkeleton />}
+                                            {role === "User" && <RoleDashboardSkeleton />}
+                                            {role === "Technician" && <RoleDashboardSkeleton />}
+                                            {role === "Supply" && <RoleDashboardSkeleton />}
+                                        </>
+                                    ) : (
+                                        <>
+                                            {role === "Admin" && (
+                                                <Authorizedpage />
+                                            )}
 
-                                        {role === "Technician" && <TechnicianDashboard technicianStats={technicianStats} />}
+                                            {role === "User" && (
+                                                <UserDashboard onSelect={handleSelectDisplay} laboratoryData={laboratoryData} />
+                                            )}
 
-                                        {role === "Supply" && <SupplyDashboard supplyStatistics={supplyStatistics} />}
-                                    </motion.div>
-                                )}
-                            </AnimatePresence>
+                                            {role === "Technician" && <Authorizedpage />}
+
+                                            {role === "Supply" && <Authorizedpage />}
+                                        </>
+                                    )}
+                                </div>
+                            )}
                         </div>
-                    </motion.div>
+                    </div>
 
                     <footer className="mt-4">
                         <Footer />
@@ -222,7 +487,7 @@ function Dashboard() {
 }
 
 // ============================================================
-// ADMIN DASHBOARD - MEMOIZED
+// ADMIN DASHBOARD
 // ============================================================
 const AdminDashboard = React.memo(({ statisticsData }) => {
     const { technicians, techniciansLoading } = useContext(UserDataContext);
@@ -245,7 +510,6 @@ const AdminDashboard = React.memo(({ statisticsData }) => {
 
     const { pieCharts, lineGraphs, barCharts } = statisticsData || {};
 
-    // Process technicianTasks data - MEMOIZED
     const taskStats = useMemo(() => {
         if (!technicianTasks || technicianTasks.length === 0) {
             return {
@@ -307,7 +571,6 @@ const AdminDashboard = React.memo(({ statisticsData }) => {
         };
     }, [technicianTasks]);
 
-    // Carousel settings
     const itemsPerPage = 6;
     const totalPages = Math.ceil(taskStats.technicians.length / itemsPerPage);
     const maxIndex = totalPages - 1;
@@ -350,7 +613,6 @@ const AdminDashboard = React.memo(({ statisticsData }) => {
         setSelectedTechnician(null);
     }, []);
 
-    // Reassign functions - MEMOIZED
     const handleOpenReassignModal = useCallback((task) => {
         setSelectedTask(task);
         const tech = taskStats.technicians.find(t =>
@@ -378,7 +640,6 @@ const AdminDashboard = React.memo(({ statisticsData }) => {
         }, 1500);
     }, [handleCloseReassignModal]);
 
-    // Pagination handlers - MEMOIZED
     const handlePrevPage = useCallback(() => {
         setCurrentIndex(prev => Math.max(0, prev - 1));
     }, []);
@@ -391,7 +652,6 @@ const AdminDashboard = React.memo(({ statisticsData }) => {
         setCurrentIndex(idx);
     }, []);
 
-    // Chart toggle handlers - MEMOIZED
     const handleSetActiveChart = useCallback((chart) => {
         setActiveChart(chart);
     }, []);
@@ -404,24 +664,28 @@ const AdminDashboard = React.memo(({ statisticsData }) => {
         setTimeRange(range);
     }, []);
 
+    if (techniciansLoading && taskStats.technicians.length === 0) {
+        return <AdminDashboardSkeleton />;
+    }
+
     return (
         <div className="space-y-8">
             {/* Technicians Avatar Section */}
             {taskStats.technicians.length > 0 ? (
-                <div className="bg-white dark:bg-slate-900 rounded-[2rem] shadow-lg p-6">
-                    <div className="flex items-center gap-3 mb-6 pb-4 border-b border-gray-200 dark:border-gray-700">
+                <div className="bg-white rounded-[2rem] shadow-lg p-6">
+                    <div className="flex items-center gap-3 mb-6 pb-4 border-b border-gray-200">
                         <div className="p-2.5 bg-blue-700 rounded-xl shadow-lg">
                             <FaWrench className="text-yellow-400 text-xl" />
                         </div>
                         <div>
-                            <h3 className="font-black text-blue-700 dark:text-yellow-400 uppercase text-sm tracking-widest">
+                            <h3 className="font-black text-blue-700 uppercase text-sm tracking-widest">
                                 Technicians & Assigned Tasks
                             </h3>
-                            <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wider">
+                            <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">
                                 {taskStats.techniciansWithTasks} technicians have assigned tasks • {taskStats.assignedTasks} total assigned tasks
                             </p>
                         </div>
-                        <span className="ml-auto text-[8px] font-black uppercase tracking-widest text-blue-700 dark:text-yellow-400 px-3 py-1 rounded-full bg-blue-100 dark:bg-yellow-900/30">
+                        <span className="ml-auto text-[8px] font-black uppercase tracking-widest text-blue-700 px-3 py-1 rounded-full bg-blue-100">
                             {taskStats.totalTechnicians} Total Technicians
                         </span>
                     </div>
@@ -438,24 +702,25 @@ const AdminDashboard = React.memo(({ statisticsData }) => {
                                 const hasTasks = tech.hasAssignedTasks;
 
                                 return (
-                                    <motion.div
+                                    <div
                                         key={index}
-                                        whileHover={hasTasks ? { y: -4, scale: 1.05 } : {}}
-                                        whileTap={hasTasks ? { scale: 0.95 } : {}}
                                         onClick={() => handleAvatarClick(tech)}
-                                        className={`flex flex-col items-center flex-shrink-0 ${hasTasks ? 'cursor-pointer' : 'cursor-default opacity-60'}`}
+                                        className={`flex flex-col items-center flex-shrink-0 transition-transform duration-300 ${hasTasks
+                                                ? 'cursor-pointer hover:-translate-y-1 hover:scale-105 active:scale-95'
+                                                : 'cursor-default opacity-60'
+                                            }`}
                                         style={{ width: `${100 / itemsPerPage}%` }}
                                     >
                                         <div className="relative">
-                                            <div className={`w-20 h-20 rounded-full bg-blue-700 flex items-center justify-center text-white font-bold text-2xl shadow-lg ${hasTasks ? 'group-hover:shadow-2xl group-hover:ring-4 group-hover:ring-yellow-400' : ''} transition-all duration-300 ring-4 ring-transparent`}>
+                                            <div className={`w-20 h-20 rounded-full bg-blue-700 flex items-center justify-center text-white font-bold text-2xl shadow-lg transition-all duration-300 ring-4 ring-transparent ${hasTasks ? 'hover:shadow-2xl hover:ring-yellow-400' : ''}`}>
                                                 {getInitials(tech.technicianName)}
                                             </div>
                                             {hasTasks ? (
-                                                <div className="absolute -top-1 -right-1 bg-yellow-400 text-blue-700 text-[11px] font-bold rounded-full w-7 h-7 flex items-center justify-center shadow-lg border-2 border-white dark:border-slate-900 animate-pulse">
+                                                <div className="absolute -top-1 -right-1 bg-yellow-400 text-blue-700 text-[11px] font-bold rounded-full w-7 h-7 flex items-center justify-center shadow-lg border-2 border-white animate-pulse">
                                                     {tech.assignedTasks}
                                                 </div>
                                             ) : (
-                                                <div className="absolute -top-1 -right-1 bg-gray-400 text-white text-[8px] font-bold rounded-full w-7 h-7 flex items-center justify-center shadow-lg border-2 border-white dark:border-slate-900">
+                                                <div className="absolute -top-1 -right-1 bg-gray-400 text-white text-[8px] font-bold rounded-full w-7 h-7 flex items-center justify-center shadow-lg border-2 border-white">
                                                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                                                     </svg>
@@ -463,7 +728,7 @@ const AdminDashboard = React.memo(({ statisticsData }) => {
                                             )}
                                         </div>
 
-                                        <p className={`text-xs font-bold mt-3 text-center ${hasTasks ? 'text-blue-700 dark:text-yellow-400' : 'text-slate-400 dark:text-slate-500'}`}>
+                                        <p className={`text-xs font-bold mt-3 text-center ${hasTasks ? 'text-blue-700' : 'text-slate-400'}`}>
                                             {tech.technicianName}
                                         </p>
 
@@ -492,11 +757,11 @@ const AdminDashboard = React.memo(({ statisticsData }) => {
                                         </div>
 
                                         {hasTasks && (
-                                            <span className="text-[8px] text-blue-700 dark:text-yellow-400 font-medium mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <span className="text-[8px] text-blue-700 font-medium mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                                 Click to view tasks
                                             </span>
                                         )}
-                                    </motion.div>
+                                    </div>
                                 );
                             })}
                         </div>
@@ -530,8 +795,7 @@ const AdminDashboard = React.memo(({ statisticsData }) => {
                                     <button
                                         key={idx}
                                         onClick={() => handlePageClick(idx)}
-                                        className={`w-2 h-2 rounded-full transition-all duration-300 ${currentIndex === idx ? 'w-6 bg-blue-700 dark:bg-yellow-400' : 'bg-gray-300 dark:bg-gray-600 hover:bg-gray-400 dark:hover:bg-gray-500'
-                                            }`}
+                                        className={`w-2 h-2 rounded-full transition-all duration-300 ${currentIndex === idx ? 'w-6 bg-blue-700' : 'bg-gray-300 hover:bg-gray-400'}`}
                                     />
                                 ))}
                             </div>
@@ -539,43 +803,40 @@ const AdminDashboard = React.memo(({ statisticsData }) => {
                     </div>
                 </div>
             ) : (
-                <div className="bg-white dark:bg-slate-900 rounded-[2rem] shadow-lg p-12 text-center border border-gray-200 dark:border-gray-700">
-                    <FaWrench className="text-6xl text-blue-700/30 dark:text-yellow-400/30 mx-auto mb-4" />
-                    <h3 className="text-xl font-bold text-blue-700 dark:text-yellow-400">No Technicians Available</h3>
-                    <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">No technician tasks have been assigned yet.</p>
+                <div className="bg-white rounded-[2rem] shadow-lg p-12 text-center border border-gray-200">
+                    <FaWrench className="text-6xl text-blue-700/30 mx-auto mb-4" />
+                    <h3 className="text-xl font-bold text-blue-700">No Technicians Available</h3>
+                    <p className="text-sm text-slate-500 mt-2">No technician tasks have been assigned yet.</p>
                 </div>
             )}
 
             {/* Task Modal */}
             {showTaskModal && selectedTechnician && selectedTechnician.hasAssignedTasks && (
                 <div
-                    className="fixed inset-0 z-50 flex items-center justify-center p-4"
+                    className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-[fadeIn_0.2s_ease-out]"
                     onClick={closeModal}
                 >
-                    <motion.div
-                        initial={{ opacity: 0, scale: 0.9, y: 20 }}
-                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.9, y: 20 }}
-                        className="bg-gray-300 dark:bg-slate-900 rounded-[2rem] shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden"
+                    <div
+                        className="bg-gray-300 rounded-[2rem] shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden animate-[popIn_0.25s_ease-out]"
                         onClick={(e) => e.stopPropagation()}
                     >
-                        <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
+                        <div className="flex items-center justify-between p-6 border-b border-gray-200">
                             <div className="flex items-center gap-4">
                                 <div className={`w-14 h-14 rounded-full bg-gradient-to-br ${getAvatarColor(selectedTechnician.technicianName)} flex items-center justify-center text-white font-bold text-2xl shadow-lg`}>
                                     {getInitials(selectedTechnician.technicianName)}
                                 </div>
                                 <div>
-                                    <h3 className="font-black text-blue-700 dark:text-yellow-400 uppercase text-base tracking-widest">
+                                    <h3 className="font-black text-blue-700 uppercase text-base tracking-widest">
                                         {selectedTechnician.technicianName}
                                     </h3>
-                                    <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wider">
+                                    <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">
                                         {selectedTechnician.assignedTasks} Assigned • {selectedTechnician.completedTasks} Completed • {selectedTechnician.totalTasks} Total
                                     </p>
                                 </div>
                             </div>
                             <button
                                 onClick={closeModal}
-                                className="p-2 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-full transition-colors"
+                                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
                             >
                                 <svg className="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -588,37 +849,37 @@ const AdminDashboard = React.memo(({ statisticsData }) => {
                                 <div className="space-y-6">
                                     {selectedTechnician.tasks.filter(task => task.Status !== 'Completed').length > 0 && (
                                         <div>
-                                            <div className="mb-3 text-xs font-bold text-blue-700 dark:text-yellow-400 uppercase tracking-wider flex items-center gap-2">
-                                                <span className="w-1 h-4 bg-blue-700 dark:bg-yellow-400 rounded-full"></span>
+                                            <div className="mb-3 text-xs font-bold text-blue-700 uppercase tracking-wider flex items-center gap-2">
+                                                <span className="w-1 h-4 bg-blue-700 rounded-full"></span>
                                                 Active Tasks ({selectedTechnician.assignedTasks + selectedTechnician.inProgressTasks + selectedTechnician.pendingTasks})
                                             </div>
-                                            <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700">
+                                            <div className="overflow-x-auto rounded-xl border border-gray-200">
                                                 <table className="w-full text-sm">
-                                                    <thead className="bg-gray-50 dark:bg-gray-800">
+                                                    <thead className="bg-gray-50">
                                                         <tr>
-                                                            <th className="px-4 py-3 text-left text-xs font-bold uppercase text-blue-700 dark:text-yellow-400">Ref</th>
-                                                            <th className="px-4 py-3 text-left text-xs font-bold uppercase text-blue-700 dark:text-yellow-400">Description</th>
-                                                            <th className="px-4 py-3 text-left text-xs font-bold uppercase text-blue-700 dark:text-yellow-400">Status</th>
-                                                            <th className="px-4 py-3 text-left text-xs font-bold uppercase text-blue-700 dark:text-yellow-400">Date</th>
-                                                            <th className="px-4 py-3 text-center text-xs font-bold uppercase text-blue-700 dark:text-yellow-400">Action</th>
+                                                            <th className="px-4 py-3 text-left text-xs font-bold uppercase text-blue-700">Ref</th>
+                                                            <th className="px-4 py-3 text-left text-xs font-bold uppercase text-blue-700">Description</th>
+                                                            <th className="px-4 py-3 text-left text-xs font-bold uppercase text-blue-700">Status</th>
+                                                            <th className="px-4 py-3 text-left text-xs font-bold uppercase text-blue-700">Date</th>
+                                                            <th className="px-4 py-3 text-center text-xs font-bold uppercase text-blue-700">Action</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody>
                                                         {selectedTechnician.tasks
                                                             .filter(task => task.Status !== 'Completed')
                                                             .map((task) => (
-                                                                <tr key={task._id} className="border-t border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-                                                                    <td className="px-4 py-3 font-mono text-xs text-gray-600 dark:text-gray-400">{task.Ref}</td>
-                                                                    <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{task.Description}</td>
+                                                                <tr key={task._id} className="border-t border-gray-100 hover:bg-gray-50 transition-colors">
+                                                                    <td className="px-4 py-3 font-mono text-xs text-gray-600">{task.Ref}</td>
+                                                                    <td className="px-4 py-3 text-gray-700">{task.Description}</td>
                                                                     <td className="px-4 py-3">
-                                                                        <span className={`px-2 py-1 rounded-full text-xs font-bold ${task.Status === 'Assigned' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
-                                                                            task.Status === 'In Progress' ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' :
-                                                                                'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                                                                        <span className={`px-2 py-1 rounded-full text-xs font-bold ${task.Status === 'Assigned' ? 'bg-blue-100 text-blue-700' :
+                                                                            task.Status === 'In Progress' ? 'bg-yellow-100 text-yellow-700' :
+                                                                                'bg-red-100 text-red-700'
                                                                             }`}>
                                                                             {task.Status}
                                                                         </span>
                                                                     </td>
-                                                                    <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400">
+                                                                    <td className="px-4 py-3 text-xs text-gray-500">
                                                                         {new Date(task.DateTime).toLocaleDateString('en-US', {
                                                                             year: 'numeric',
                                                                             month: 'short',
@@ -645,34 +906,34 @@ const AdminDashboard = React.memo(({ statisticsData }) => {
 
                                     {selectedTechnician.completedTasks > 0 && (
                                         <div>
-                                            <div className="mb-3 text-xs font-bold text-green-600 dark:text-green-400 uppercase tracking-wider flex items-center gap-2">
+                                            <div className="mb-3 text-xs font-bold text-green-600 uppercase tracking-wider flex items-center gap-2">
                                                 <span className="w-1 h-4 bg-green-500 rounded-full"></span>
                                                 Completed Tasks ({selectedTechnician.completedTasks})
                                             </div>
-                                            <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700">
+                                            <div className="overflow-x-auto rounded-xl border border-gray-200">
                                                 <table className="w-full text-sm">
-                                                    <thead className="bg-gray-50 dark:bg-gray-800">
+                                                    <thead className="bg-gray-50">
                                                         <tr>
-                                                            <th className="px-4 py-3 text-left text-xs font-bold uppercase text-green-600 dark:text-green-400">Ref</th>
-                                                            <th className="px-4 py-3 text-left text-xs font-bold uppercase text-green-600 dark:text-green-400">Description</th>
-                                                            <th className="px-4 py-3 text-left text-xs font-bold uppercase text-green-600 dark:text-green-400">Status</th>
-                                                            <th className="px-4 py-3 text-left text-xs font-bold uppercase text-green-600 dark:text-green-400">Date</th>
-                                                            <th className="px-4 py-3 text-center text-xs font-bold uppercase text-green-600 dark:text-green-400">Action</th>
+                                                            <th className="px-4 py-3 text-left text-xs font-bold uppercase text-green-600">Ref</th>
+                                                            <th className="px-4 py-3 text-left text-xs font-bold uppercase text-green-600">Description</th>
+                                                            <th className="px-4 py-3 text-left text-xs font-bold uppercase text-green-600">Status</th>
+                                                            <th className="px-4 py-3 text-left text-xs font-bold uppercase text-green-600">Date</th>
+                                                            <th className="px-4 py-3 text-center text-xs font-bold uppercase text-green-600">Action</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody>
                                                         {selectedTechnician.tasks
                                                             .filter(task => task.Status === 'Completed')
                                                             .map((task) => (
-                                                                <tr key={task._id} className="border-t border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-                                                                    <td className="px-4 py-3 font-mono text-xs text-gray-600 dark:text-gray-400">{task.Ref}</td>
-                                                                    <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{task.Description}</td>
+                                                                <tr key={task._id} className="border-t border-gray-100 hover:bg-gray-50 transition-colors">
+                                                                    <td className="px-4 py-3 font-mono text-xs text-gray-600">{task.Ref}</td>
+                                                                    <td className="px-4 py-3 text-gray-700">{task.Description}</td>
                                                                     <td className="px-4 py-3">
-                                                                        <span className="px-2 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                                                                        <span className="px-2 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700">
                                                                             {task.Status}
                                                                         </span>
                                                                     </td>
-                                                                    <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400">
+                                                                    <td className="px-4 py-3 text-xs text-gray-500">
                                                                         {new Date(task.DateTime).toLocaleDateString('en-US', {
                                                                             year: 'numeric',
                                                                             month: 'short',
@@ -699,15 +960,15 @@ const AdminDashboard = React.memo(({ statisticsData }) => {
                                 </div>
                             ) : (
                                 <div className="text-center py-12">
-                                    <FaWrench className="text-4xl text-slate-300 dark:text-slate-600 mx-auto mb-3" />
+                                    <FaWrench className="text-4xl text-slate-300 mx-auto mb-3" />
                                     <p className="text-slate-400 font-medium">No tasks assigned to this technician</p>
                                 </div>
                             )}
                         </div>
 
-                        <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-800/50">
+                        <div className="p-4 border-t border-gray-200 flex justify-between items-center bg-gray-50">
                             <p className="text-[10px] text-slate-400 font-medium uppercase tracking-wider">
-                                Total Tasks: <span className="font-bold text-blue-700 dark:text-yellow-400">{selectedTechnician.totalTasks}</span>
+                                Total Tasks: <span className="font-bold text-blue-700">{selectedTechnician.totalTasks}</span>
                             </p>
                             <button
                                 onClick={closeModal}
@@ -716,7 +977,7 @@ const AdminDashboard = React.memo(({ statisticsData }) => {
                                 Close
                             </button>
                         </div>
-                    </motion.div>
+                    </div>
                 </div>
             )}
 
@@ -734,12 +995,12 @@ const AdminDashboard = React.memo(({ statisticsData }) => {
 
             {/* Chart Toggle */}
             <div className="flex flex-wrap justify-between items-center gap-4">
-                <div className="flex gap-2 bg-white dark:bg-slate-800 p-1.5 rounded-xl shadow-md border border-gray-200 dark:border-gray-700">
+                <div className="flex gap-2 bg-white p-1.5 rounded-xl shadow-md border border-gray-200">
                     <button
                         onClick={() => handleSetActiveChart("line")}
                         className={`px-5 py-2.5 text-xs font-black uppercase tracking-wider rounded-lg transition-all duration-200 flex items-center gap-2.5 ${activeChart === "line"
                             ? "bg-blue-700 text-yellow-400 shadow-lg shadow-blue-700/30 scale-105"
-                            : "bg-transparent text-blue-700/60 dark:text-yellow-400/60 hover:text-blue-700 dark:hover:text-yellow-400 hover:bg-blue-50 dark:hover:bg-yellow-900/10"
+                            : "bg-transparent text-blue-700/60 hover:text-blue-700 hover:bg-blue-50"
                             }`}
                     >
                         <FaChartLine size={16} className={activeChart === "line" ? "text-yellow-400" : "text-current"} />
@@ -752,7 +1013,7 @@ const AdminDashboard = React.memo(({ statisticsData }) => {
                         onClick={() => handleSetActiveChart("bar")}
                         className={`px-5 py-2.5 text-xs font-black uppercase tracking-wider rounded-lg transition-all duration-200 flex items-center gap-2.5 ${activeChart === "bar"
                             ? "bg-blue-700 text-yellow-400 shadow-lg shadow-blue-700/30 scale-105"
-                            : "bg-transparent text-blue-700/60 dark:text-yellow-400/60 hover:text-blue-700 dark:hover:text-yellow-400 hover:bg-blue-50 dark:hover:bg-yellow-900/10"
+                            : "bg-transparent text-blue-700/60 hover:text-blue-700 hover:bg-blue-50"
                             }`}
                     >
                         <FaChartBar size={16} className={activeChart === "bar" ? "text-yellow-400" : "text-current"} />
@@ -764,7 +1025,7 @@ const AdminDashboard = React.memo(({ statisticsData }) => {
                 </div>
 
                 {activeChart === "bar" && (
-                    <div className="flex gap-1.5 bg-white dark:bg-slate-800 p-1.5 rounded-xl shadow-md border border-gray-200 dark:border-gray-700">
+                    <div className="flex gap-1.5 bg-white p-1.5 rounded-xl shadow-md border border-gray-200">
                         {[
                             { value: "equipment", label: "Equipment", icon: <FaFlask size={12} /> },
                             { value: "maintenance", label: "Maintenance", icon: <FaTools size={12} /> },
@@ -776,7 +1037,7 @@ const AdminDashboard = React.memo(({ statisticsData }) => {
                                 onClick={() => handleSetBarChartType(type.value)}
                                 className={`px-3.5 py-2 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all duration-200 flex items-center gap-2 ${barChartType === type.value
                                     ? "bg-yellow-400 text-blue-700 shadow-lg shadow-yellow-400/30"
-                                    : "bg-transparent text-blue-700/50 dark:text-yellow-400/50 hover:text-blue-700 dark:hover:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-blue-900/10"
+                                    : "bg-transparent text-blue-700/50 hover:text-blue-700 hover:bg-yellow-50"
                                     }`}
                             >
                                 {type.icon} {type.label}
@@ -789,29 +1050,29 @@ const AdminDashboard = React.memo(({ statisticsData }) => {
             {/* Charts Grid */}
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                 {activeChart === "line" && (
-                    <div className="xl:col-span-2 bg-white dark:bg-slate-900 rounded-[2rem] shadow-lg border border-gray-200 dark:border-gray-700 p-6">
-                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 pb-4 border-b border-gray-200 dark:border-gray-700">
+                    <div className="xl:col-span-2 bg-white rounded-[2rem] shadow-lg border border-gray-200 p-6">
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 pb-4 border-b border-gray-200">
                             <div className="flex items-center gap-3">
                                 <div className="p-2.5 bg-blue-700 rounded-xl shadow-lg shadow-blue-700/20">
                                     <FaChartLine className="text-yellow-400 text-xl" />
                                 </div>
                                 <div>
-                                    <h3 className="font-black text-blue-700 dark:text-yellow-400 uppercase text-sm tracking-widest">
+                                    <h3 className="font-black text-blue-700 uppercase text-sm tracking-widest">
                                         Performance Analytics
                                     </h3>
-                                    <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wider">
+                                    <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">
                                         Equipment vs Maintenance Requests Overview
                                     </p>
                                 </div>
                             </div>
-                            <div className="flex gap-1 bg-white dark:bg-slate-800 p-1 rounded-xl border border-gray-200 dark:border-gray-700">
+                            <div className="flex gap-1 bg-white p-1 rounded-xl border border-gray-200">
                                 {["yearly", "monthly"].map((range) => (
                                     <button
                                         key={range}
                                         onClick={() => handleSetTimeRange(range)}
                                         className={`px-3.5 py-1.5 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all duration-200 ${timeRange === range
                                             ? "bg-blue-700 text-yellow-400 shadow-md"
-                                            : "text-blue-700/50 dark:text-yellow-400/50 hover:text-blue-700 dark:hover:text-yellow-400 hover:bg-blue-50 dark:hover:bg-yellow-900/10"
+                                            : "text-blue-700/50 hover:text-blue-700 hover:bg-blue-50"
                                             }`}
                                     >
                                         {range}
@@ -824,20 +1085,20 @@ const AdminDashboard = React.memo(({ statisticsData }) => {
                 )}
 
                 {activeChart === "bar" && (
-                    <div className="xl:col-span-2 bg-white dark:bg-slate-900 rounded-[2rem] shadow-lg border border-gray-200 dark:border-gray-700 p-6">
-                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 pb-4 border-b border-gray-200 dark:border-gray-700">
+                    <div className="xl:col-span-2 bg-white rounded-[2rem] shadow-lg border border-gray-200 p-6">
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 pb-4 border-b border-gray-200">
                             <div className="flex items-center gap-3">
                                 <div className="p-2.5 bg-blue-700 rounded-xl shadow-lg shadow-blue-700/20">
                                     <FaChartBar className="text-yellow-400 text-xl" />
                                 </div>
                                 <div>
-                                    <h3 className="font-black text-blue-700 dark:text-yellow-400 uppercase text-sm tracking-widest">
+                                    <h3 className="font-black text-blue-700 uppercase text-sm tracking-widest">
                                         {barChartType === "equipment" ? "Equipment Distribution" :
                                             barChartType === "maintenance" ? "Maintenance Distribution" :
                                                 barChartType === "requests" ? "Requests Distribution" :
                                                     "Feedback Distribution"}
                                     </h3>
-                                    <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wider">
+                                    <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">
                                         {barChartType === "equipment" ? "Equipment by Laboratory" :
                                             barChartType === "maintenance" ? "Maintenance Requests by Laboratory" :
                                                 barChartType === "requests" ? "Service Requests by Laboratory" :
@@ -846,10 +1107,10 @@ const AdminDashboard = React.memo(({ statisticsData }) => {
                                 </div>
                             </div>
                             <div className="flex items-center gap-2">
-                                <span className="text-[8px] font-black uppercase tracking-widest text-blue-700/40 dark:text-yellow-400/40">
+                                <span className="text-[8px] font-black uppercase tracking-widest text-blue-700/40">
                                     Active View
                                 </span>
-                                <span className="px-3 py-1 bg-yellow-100 dark:bg-yellow-900/30 rounded-full text-[8px] font-black text-blue-700 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-800">
+                                <span className="px-3 py-1 bg-yellow-100 rounded-full text-[8px] font-black text-blue-700 border border-yellow-200">
                                     BAR CHART
                                 </span>
                             </div>
@@ -864,15 +1125,15 @@ const AdminDashboard = React.memo(({ statisticsData }) => {
             </div>
 
             {/* PIE CHARTS */}
-            <div className="bg-white dark:bg-slate-900 rounded-[2rem] shadow-lg border border-gray-200 dark:border-gray-700 p-6">
-                <div className="flex items-center gap-3 mb-4 pb-4 border-b border-gray-200 dark:border-gray-700">
+            <div className="bg-white rounded-[2rem] shadow-lg border border-gray-200 p-6">
+                <div className="flex items-center gap-3 mb-4 pb-4 border-b border-gray-200">
                     <div className="p-2.5 bg-blue-700 rounded-xl shadow-lg shadow-blue-700/20">
                         <FaChartLine className="text-yellow-400 text-xl" />
                     </div>
-                    <h3 className="font-black text-blue-700 dark:text-yellow-400 uppercase text-sm tracking-widest">
+                    <h3 className="font-black text-blue-700 uppercase text-sm tracking-widest">
                         Distribution Analytics
                     </h3>
-                    <span className="ml-auto text-[8px] font-black uppercase tracking-widest text-blue-700/30 dark:text-yellow-400/30 px-3 py-1 rounded-full bg-blue-50 dark:bg-yellow-900/10 border border-blue-100 dark:border-yellow-800/30">
+                    <span className="ml-auto text-[8px] font-black uppercase tracking-widest text-blue-700/30 px-3 py-1 rounded-full bg-blue-50 border border-blue-100">
                         {Object.keys(pieCharts || {}).filter(key => (pieCharts?.[key] || []).length > 0).length} Active
                     </span>
                 </div>
@@ -883,11 +1144,11 @@ const AdminDashboard = React.memo(({ statisticsData }) => {
 });
 
 // ============================================================
-// LABORATORY VIEW - MEMOIZED
+// LABORATORY VIEW
 // ============================================================
 const LaboratoryView = React.memo(({ laboratory }) => (
     <div className="space-y-6">
-        <div className="bg-white dark:bg-slate-900 p-8 rounded-[2rem] shadow-sm border border-blue-700/20 dark:border-yellow-400/20 relative overflow-hidden">
+        <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-blue-700/20 relative overflow-hidden">
             <div className="absolute top-0 left-0 w-2 h-full bg-yellow-400" />
             <Laboratory laboratoryId={laboratory._id} />
         </div>

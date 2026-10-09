@@ -73,6 +73,16 @@ export const navbarLinks = [
                 icon: History,
                 path: "/dashboard/problem",
             },
+            {
+                label: "Equipment",
+                icon: History,
+                path: "/dashboard/RequestMaintenances",
+            },
+            {
+                label: "Category",
+                icon: History,
+                path: "/dashboard/category",
+            }
         ],
     }
 ];
