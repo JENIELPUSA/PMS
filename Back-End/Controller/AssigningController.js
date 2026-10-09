@@ -7,6 +7,7 @@ const mongoose = require("mongoose");
 const PDFDocument = require("pdfkit");
 const fs = require("fs");
 const path = require("path");
+const Laboratory = require("../Models/Laboratory")
 
 exports.AssignEquipment = AsyncErrorHandler(async (req, res) => {
   // Create the AssignEquipment document
@@ -20,7 +21,39 @@ exports.AssignEquipment = AsyncErrorHandler(async (req, res) => {
 });
 
 exports.displayAssign = AsyncErrorHandler(async (req, res) => {
-  const features = new Apifeatures(assign.find(), req.query)
+  const userID = req.user._id;
+  const role = req.user.role;
+
+  // ============================================================
+  // STEP 1: Base filter — walang filter (para sa Admin/other roles)
+  // ============================================================
+  let matchStage = {};
+
+  // ============================================================
+  // STEP 2: Kung role === "User", i-filter base sa Laboratory ng Encharge
+  // ============================================================
+  if (role === "User") {
+    const laboratory = await Laboratory.findOne({ Encharge: userID });
+
+    console.log("laboratory", laboratory);
+
+    if (!laboratory) {
+      return res.status(404).json({
+        status: "fail",
+        message: "You are not assigned as Encharge to any laboratory.",
+      });
+    }
+
+    // ✅ I-match ang assign.Laboratory sa laboratory._id
+    matchStage.Laboratory = laboratory._id;
+  }
+
+  console.log("role", role);
+
+  // ============================================================
+  // STEP 3: Apifeatures — dito papasok ang matchStage
+  // ============================================================
+  const features = new Apifeatures(assign.find(matchStage), req.query)
     .filter()
     .sort()
     .limitFields()
@@ -28,6 +61,9 @@ exports.displayAssign = AsyncErrorHandler(async (req, res) => {
 
   const filterAssign = await features.query;
 
+  // ============================================================
+  // STEP 4: Aggregation
+  // ============================================================
   let assigns = await assign.aggregate([
     { $match: { _id: { $in: filterAssign.map((tool) => tool._id) } } },
 
@@ -89,12 +125,12 @@ exports.displayAssign = AsyncErrorHandler(async (req, res) => {
     // ---------------- Join Maintenance Schedule ----------------
     {
       $lookup: {
-        from: "maintenanceschedules", // collection name ng maintenance
+        from: "maintenanceschedules",
         let: { eqId: "$EquipmentsInfo._id" },
         pipeline: [
           { $match: { $expr: { $eq: ["$equipmentType", "$$eqId"] } } },
           { $sort: { lastMaintenanceDate: -1 } },
-          { $limit: 1 }, // pinaka-latest lang
+          { $limit: 1 },
         ],
         as: "MaintenanceInfo",
       },
@@ -105,10 +141,16 @@ exports.displayAssign = AsyncErrorHandler(async (req, res) => {
           $cond: [{ $gt: [{ $size: "$MaintenanceInfo" }, 0] }, true, false],
         },
         "EquipmentsInfo.lastMaintenanceDate": {
-          $ifNull: [{ $arrayElemAt: ["$MaintenanceInfo.lastMaintenanceDate", 0] }, null],
+          $ifNull: [
+            { $arrayElemAt: ["$MaintenanceInfo.lastMaintenanceDate", 0] },
+            null,
+          ],
         },
         "EquipmentsInfo.nextMaintenanceDate": {
-          $ifNull: [{ $arrayElemAt: ["$MaintenanceInfo.nextMaintenanceDate", 0] }, null],
+          $ifNull: [
+            { $arrayElemAt: ["$MaintenanceInfo.nextMaintenanceDate", 0] },
+            null,
+          ],
         },
       },
     },
@@ -123,7 +165,14 @@ exports.displayAssign = AsyncErrorHandler(async (req, res) => {
         enchargeId: { $first: "$EnchargeInfo._id" },
         encharge: { $first: "$EnchargeInfo" },
         departmentName: { $first: "$DepartmentInfo.DepartmentName" },
-        equipments: { $addToSet: { $mergeObjects: ["$EquipmentsInfo", { categoryName: "$CategoryInfo.CategoryName" }] } },
+        equipments: {
+          $addToSet: {
+            $mergeObjects: [
+              "$EquipmentsInfo",
+              { categoryName: "$CategoryInfo.CategoryName" },
+            ],
+          },
+        },
         categories: { $addToSet: "$CategoryInfo.CategoryName" },
       },
     },
@@ -155,6 +204,7 @@ exports.displayAssign = AsyncErrorHandler(async (req, res) => {
 
   res.status(200).json({
     status: "success",
+    role: role,
     data: assigns,
   });
 });
