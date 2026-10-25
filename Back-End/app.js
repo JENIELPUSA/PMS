@@ -30,7 +30,8 @@ const Pms002 = require("./Routes/PMSroute002")
 const Pms003 = require("./Routes/PMSroute003")
 const Pms004 = require("./Routes/PMSroute4")
 const Pms005 = require("./Routes/PMSroute005")
-const Pms006 = require("./Routes/PMSroute006")
+const Pms006 = require("./Routes/PMSroute006") 
+const Pms007= require("./Routes/PMSroute007")
 const PmsStatistical= require("./Routes/StatisticalPmsRoute")
 
 
@@ -101,6 +102,7 @@ app.use("/api/v1/Pms003", Pms003);
 app.use("/api/v1/Pms004", Pms004);
 app.use("/api/v1/Pms005", Pms005);
 app.use("/api/v1/Pms006", Pms006);
+app.use("/api/v1/Pms007", Pms007);
 app.use("/api/v1/PmsStatistical", PmsStatistical);
 app.use(ErrorController);
 
