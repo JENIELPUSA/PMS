@@ -48,7 +48,6 @@ exports.displayAssign = AsyncErrorHandler(async (req, res) => {
     matchStage.Laboratory = laboratory._id;
   }
 
-  console.log("role", role);
 
   // ============================================================
   // STEP 3: Apifeatures — dito papasok ang matchStage

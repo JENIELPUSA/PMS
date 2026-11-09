@@ -691,91 +691,182 @@ exports.getSpecificEquipment = AsyncErrorHandler(async (req, res, next) => {
 });
 
 exports.FindByCode = AsyncErrorHandler(async (req, res) => {
-  const { code } = req.params;
-  const userId = req.user?._id;
+    const { code } = req.params;
+    const userId = req.user?._id;
 
-  if (!userId) {
-    return res.status(400).json({
-      status: "fail",
-      message: "User ID not found in request.",
-    });
-  }
+    // ✅ DEBUG LOGS — alisin pag okay na
+    console.log("🔍 raw param:", JSON.stringify(code));
+    console.log("🔍 decoded:", JSON.stringify(decodeURIComponent(code)));
+    console.log("🔍 user:", userId);
 
-  if (!code) {
-    return res.status(400).json({
-      status: "fail",
-      message: "Please provide a code",
-    });
-  }
+    if (!userId) {
+        return res.status(400).json({
+            status: "fail",
+            message: "User ID not found in request.",
+        });
+    }
 
-  const userObjectId = new mongoose.Types.ObjectId(userId);
+    if (!code) {
+        return res.status(400).json({
+            status: "fail",
+            message: "Please provide a code",
+        });
+    }
 
-  const result = await Assign.aggregate([
-    // 1) Laboratory — Encharge = user
-    {
-      $lookup: {
-        from: "laboratories",
-        let: { labId: "$Laboratory" },
-        pipeline: [
-          {
-            $match: {
-              $expr: {
-                $and: [
-                  { $eq: ["$_id", "$$labId"] },
-                  { $eq: ["$Encharge", userObjectId] },
+    // ✅ Normalize — decode at trim
+    const normalizedCode = decodeURIComponent(code).trim();
+
+    console.log("🔍 normalizedCode:", JSON.stringify(normalizedCode));
+
+    const userObjectId = new mongoose.Types.ObjectId(userId);
+
+    // ✅ Regex-safe escape
+    const escapeRegex = (str) =>
+        str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+    const result = await Assign.aggregate([
+        // 1) Laboratory — Encharge = user
+        {
+            $lookup: {
+                from: "laboratories",
+                let: { labId: "$Laboratory" },
+                pipeline: [
+                    {
+                        $match: {
+                            $expr: {
+                                $and: [
+                                    { $eq: ["$_id", "$$labId"] },
+                                    { $eq: ["$Encharge", userObjectId] },
+                                ],
+                            },
+                        },
+                    },
+                    { $project: { _id: 1 } },
                 ],
-              },
+                as: "LaboratoryData",
             },
-          },
-          { $project: { _id: 1 } },
-        ],
-        as: "LaboratoryData",
-      },
-    },
-    { $unwind: "$LaboratoryData" }, // kung hindi Encharge → tanggal agad
+        },
+        { $unwind: "$LaboratoryData" },
 
-    // 2) Equipment lookup
-    {
-      $lookup: {
-        from: "equipment",
-        localField: "Equipments",
-        foreignField: "_id",
-        as: "EquipmentData",
-      },
-    },
-    { $unwind: "$EquipmentData" },
+        // 2) Equipment lookup
+        {
+            $lookup: {
+                from: "equipment",
+                localField: "Equipments",
+                foreignField: "_id",
+                as: "EquipmentData",
+            },
+        },
+        { $unwind: "$EquipmentData" },
 
-    // 3) Match sa code
-    {
-      $match: { "EquipmentData.code": code },
-    },
+        // 3) ✅ MATCH — case-insensitive, trimmed, exact
+        {
+            $match: {
+                $expr: {
+                    $eq: [
+                        {
+                            $toLower: {
+                                $trim: {
+                                    input: {
+                                        $ifNull: [
+                                            "$EquipmentData.code",
+                                            "",
+                                        ],
+                                    },
+                                },
+                            },
+                        },
+                        normalizedCode.toLowerCase(),
+                    ],
+                },
+            },
+        },
 
-    // 4) FINAL OUTPUT — dating flat shape
-    {
-      $project: {
-        _id: "$EquipmentData._id",
-        code: "$EquipmentData.code",
-        Brand: "$EquipmentData.Brand",
-        DateAcquired: "$EquipmentData.DateAcquired",
-        Category: "$EquipmentData.Category",
-        SerialNumber:"$EquipmentData.SerialNumber"
-      },
-    },
+        // 4) FINAL OUTPUT
+        {
+            $project: {
+                _id: "$EquipmentData._id",
+                code: "$EquipmentData.code",
+                Brand: "$EquipmentData.Brand",
+                DateAcquired: "$EquipmentData.DateAcquired",
+                Category: "$EquipmentData.Category",
+                SerialNumber: "$EquipmentData.SerialNumber",
+            },
+        },
 
-    { $limit: 1 },
-  ]);
+        { $limit: 1 },
+    ]);
 
-  if (!result || result.length === 0) {
-    return res.status(404).json({
-      status: "fail",
-      message: `No equipment found with code: ${code} in your assigned laboratory.`,
+    console.log("🔍 result:", result);
+
+    if (!result || result.length === 0) {
+        // ✅ DEBUG — i-check kung may match sa equipment sa lab mo
+        const debugCount = await Assign.aggregate([
+            {
+                $lookup: {
+                    from: "laboratories",
+                    let: { labId: "$Laboratory" },
+                    pipeline: [
+                        {
+                            $match: {
+                                $expr: {
+                                    $and: [
+                                        { $eq: ["$_id", "$$labId"] },
+                                        {
+                                            $eq: [
+                                                "$Encharge",
+                                                userObjectId,
+                                            ],
+                                        },
+                                    ],
+                                },
+                            },
+                        },
+                        { $project: { _id: 1 } },
+                    ],
+                    as: "LaboratoryData",
+                },
+            },
+            { $unwind: "$LaboratoryData" },
+            {
+                $lookup: {
+                    from: "equipment",
+                    localField: "Equipments",
+                    foreignField: "_id",
+                    as: "EquipmentData",
+                },
+            },
+            { $unwind: "$EquipmentData" },
+            {
+                $project: {
+                    code: "$EquipmentData.code",
+                    codeJson: {
+                        $concat: [
+                            "'",
+                            { $ifNull: ["$EquipmentData.code", ""] },
+                            "'",
+                        ],
+                    },
+                },
+            },
+        ]);
+
+        console.log("🔍 Available codes in your lab:", debugCount);
+
+        return res.status(404).json({
+            status: "fail",
+            message: `No equipment found with code: "${normalizedCode}" in your assigned laboratory.`,
+            debug: {
+                searchedCode: normalizedCode,
+                availableCodes: debugCount.map((d) => d.codeJson),
+            },
+        });
+    }
+
+    res.status(200).json({
+        status: "success",
+        data: result[0],
     });
-  }
-
-  res.status(200).json({
-    status: "success",
-    data: result[0],
-  });
 });
 
 // src/Controllers/PMS002Controller.js

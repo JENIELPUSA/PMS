@@ -30,9 +30,9 @@ const Pms002 = require("./Routes/PMSroute002")
 const Pms003 = require("./Routes/PMSroute003")
 const Pms004 = require("./Routes/PMSroute4")
 const Pms005 = require("./Routes/PMSroute005")
-const Pms006 = require("./Routes/PMSroute006") 
-const Pms007= require("./Routes/PMSroute007")
-const PmsStatistical= require("./Routes/StatisticalPmsRoute")
+const Pms006 = require("./Routes/PMSroute006")
+const Pms007 = require("./Routes/PMSroute007")
+const PmsStatistical = require("./Routes/StatisticalPmsRoute")
 
 
 let app = express();
@@ -66,7 +66,7 @@ app.use(
 app.use(
   cors({
     origin: process.env.FRONTEND_URL,
-    methods: ["GET", "POST", "PATCH", "DELETE"],
+    methods: ["GET", "POST", "PATCH", "DELETE", "PUT"],
     credentials: true,
   }),
 );

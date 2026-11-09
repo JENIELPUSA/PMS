@@ -1,8 +1,16 @@
-// src/Models/EquipmentHistory.js
+// src/Models/EquipmentHistory.js  (o src/Models/PMS005.js)
 const mongoose = require("mongoose");
 
 const equipmentPms004Schema = new mongoose.Schema(
     {
+        // ✅ FK sa PMS001
+        pms001Id: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "PMS001",
+            required: [true, "PMS001 ID is required"],
+            index: true,
+        },
+
         // Reference sa Equipment model
         equipmentId: {
             type: mongoose.Schema.Types.ObjectId,
@@ -45,13 +53,14 @@ const equipmentPms004Schema = new mongoose.Schema(
     }
 );
 
-// Indexes para mabilis ang query
+// ✅ Indexes
 equipmentPms004Schema.index({ equipmentId: 1 });
+equipmentPms004Schema.index({ pms001Id: 1 });              // ✅ bagong index
 equipmentPms004Schema.index({ laboratoryId: 1 });
 equipmentPms004Schema.index({ Date: -1 });
 equipmentPms004Schema.index({ equipmentId: 1, laboratoryId: 1 });
 
-// Virtual para sa populated performedBy (kung magiging ref sa future)
+// Virtual para sa populated performedBy
 equipmentPms004Schema.virtual("performedByFullName").get(function () {
     if (!this.performedBy) return "";
     if (typeof this.performedBy === "string") return this.performedBy;
@@ -65,7 +74,6 @@ equipmentPms004Schema.virtual("performedByFullName").get(function () {
         .trim();
 });
 
-// Siguraduhing kasama ang virtuals kapag nag-`toJSON` / `toObject`
 equipmentPms004Schema.set("toJSON", { virtuals: true });
 equipmentPms004Schema.set("toObject", { virtuals: true });
 

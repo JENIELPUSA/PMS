@@ -3,6 +3,14 @@ import mongoose from "mongoose";
 
 const equipmentpms007Schema = new mongoose.Schema(
     {
+        // FK sa PMS001
+        pms001Id: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "PMS001",
+            required: [true, "PMS001 ID is required"],
+            index: true,
+        },
+
         equipmentId: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "Equipment",
@@ -28,25 +36,24 @@ const equipmentpms007Schema = new mongoose.Schema(
         instrumentType: { type: String, trim: true, default: "" },
         accuracy: { type: String, trim: true, default: "" },
 
-        // Error field na hinati sa dalawa base sa image
         errorObserved: { type: String, trim: true, default: "" },
         errorCorrected: { type: String, trim: true, default: "" },
 
         calibratedBy: { type: String, trim: true, default: "" },
         remarks: { type: String, trim: true, default: "" },
 
-        // Date of calibration
         date: { type: Date, default: Date.now },
     },
     { timestamps: true }
 );
 
 // ==========================================
-// INDEXES (Pareho sa PMS 006 pattern)
+// INDEXES
 // ==========================================
 equipmentpms007Schema.index({ equipmentId: 1 });
+equipmentpms007Schema.index({ pms001Id: 1 });              // ✅ bagong index
 equipmentpms007Schema.index({ laboratoryId: 1 });
-equipmentpms007Schema.index({ date: -1 }); // Date of calibration
+equipmentpms007Schema.index({ date: -1 });
 equipmentpms007Schema.index({ equipmentId: 1, laboratoryId: 1 });
 equipmentpms007Schema.index({ laboratoryId: 1, date: -1 });
 equipmentpms007Schema.index({ equipmentId: 1, date: -1 });
@@ -60,7 +67,6 @@ equipmentpms007Schema.set("toObject", { virtuals: true });
 // ==========================================
 // MODEL EXPORT
 // ==========================================
-// Gagamitin natin ang "pms007" bilang pangalan ng collection/model
 const InstrumentCalibration = mongoose.model("pms007", equipmentpms007Schema);
 
 export default InstrumentCalibration;
