@@ -656,11 +656,43 @@ exports.deletePMS002 = AsyncErrorHandler(async (req, res, next) => {
 
 // src/Controllers/PMS002Controller.js
 
+// ============================================================
+// DISPLAY ALL PMS003 — with Encharge matching + optional date filter
+// ============================================================
 exports.DisplayAllPMS003 = AsyncErrorHandler(async (req, res) => {
+    const userID = req.user._id;
+    const role = req.user.role;
+
+    console.log("triggerrr____ DisplayAllPMS003");
+
     // ============================================================
-    // 1️⃣ Kunin lahat ng Laboratory
+    // STEP 1: Base match stage
+    // ============================================================
+    let matchStage = {};
+
+    // ============================================================
+    // STEP 2: Kung role === "User", i-filter base sa Laboratory ng Encharge
+    // ============================================================
+    if (role === "User") {
+        const laboratory = await Laboratory.findOne({ Encharge: userID });
+
+        console.log("laboratory", laboratory);
+
+        if (!laboratory) {
+            return res.status(404).json({
+                status: "fail",
+                message: "You are not assigned as Encharge to any laboratory.",
+            });
+        }
+
+        matchStage._id = laboratory._id;
+    }
+
+    // ============================================================
+    // STEP 3: Kunin ang Laboratory gamit ang matchStage
     // ============================================================
     const laboratory = await Laboratory.aggregate([
+        { $match: matchStage },
         {
             $project: {
                 _id: 1,
@@ -677,13 +709,15 @@ exports.DisplayAllPMS003 = AsyncErrorHandler(async (req, res) => {
         });
     }
 
+    const laboratoryId = laboratory[0]._id;
+
     // ============================================================
-    // 2️⃣ Query flags (optional date filter)
+    // STEP 4: Query flags (optional date filter)
     // ============================================================
     const { from, to } = req.query;
 
     // ============================================================
-    // 3️⃣ Buuin ang date filter (base sa `date` field)
+    // STEP 5: Buuin ang date filter (base sa `date` field)
     // ============================================================
     const dateFilter = {};
 
@@ -716,24 +750,43 @@ exports.DisplayAllPMS003 = AsyncErrorHandler(async (req, res) => {
     }
 
     // ============================================================
-    // 4️⃣ Kunin LAHAT ng PMS003 records
-    //    - Kapag may from/to → filtered by date
-    //    - Kapag wala → lahat ng records
+    // STEP 6: Matching — PMS003 records lang ng lab
     // ============================================================
-    const pmsRecord = await PMS003.find({
-        ...dateFilter,
-    })
+    const pms003Query = { ...dateFilter };
+
+    if (laboratoryId) {
+        // ⚠️ Kung may `laboratoryId` field ang PMS003, direct match:
+        pms003Query.laboratoryId = laboratoryId;
+
+        // ⚠️ KUNG WALANG `laboratoryId` sa PMS003, gamitin ang equipment approach:
+        // const equipmentList = await Equipment.find(
+        //     { laboratory: laboratoryId },
+        //     { _id: 1 }
+        // ).lean();
+        // const equipmentIds = equipmentList.map((e) => e._id);
+        // if (equipmentIds.length > 0) {
+        //     pms003Query.equipmentId = { $in: equipmentIds };
+        // } else {
+        //     pms003Query._id = { $in: [] };
+        // }
+    }
+
+    // ============================================================
+    // STEP 7: Kunin ang PMS003 records — matching + date filter
+    // ============================================================
+    const pmsRecord = await PMS003.find(pms003Query)
         .populate("equipmentId")
         .sort({ date: -1, createdAt: -1 });
 
     // ============================================================
-    // 5️⃣ Response — same output key (pmsRecord)
+    // STEP 8: Response
     // ============================================================
     res.status(200).json({
         status: "success",
-        pmsRecord, // ✅ same key
+        role: role,
+        pmsRecord,
         data: {
-            _id: laboratory[0]._id,
+            _id: laboratoryId,
             LaboratoryName: laboratory[0].LaboratoryName,
         },
     });

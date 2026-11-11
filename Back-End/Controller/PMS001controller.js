@@ -401,7 +401,7 @@ exports.FindByEquipment = AsyncErrorHandler(async (req, res) => {
 
     const userObjectId = new mongoose.Types.ObjectId(userId);
 
-    // 1️⃣ Hanapin ang Laboratory ng user
+    // Hanapin ang Laboratory ng user
     const laboratory = await Laboratory.aggregate([
         { $match: { Encharge: userObjectId } },
         {
@@ -491,78 +491,119 @@ exports.FindByEquipment = AsyncErrorHandler(async (req, res) => {
 });
 
 // ============================================================
-// DISPLAY ALL PMS001 — with optional date filter
+// DISPLAY ALL PMS001 — with Encharge matching + optional date filter
 // ============================================================
 exports.DisplayAllPMS001 = AsyncErrorHandler(async (req, res) => {
-    const laboratory = await Laboratory.aggregate([
-        {
-            $project: {
-                _id: 1,
-                LaboratoryName: { $ifNull: ["$LaboratoryName", "N/A"] },
-            },
-        },
-        { $limit: 1 },
-    ]);
+  const userID = req.user._id;
+  const role = req.user.role;
 
-    if (!laboratory || laboratory.length === 0) {
-        return res.status(404).json({
-            status: "fail",
-            message: "No laboratory found.",
-        });
+  console.log("triggerrr____ DisplayAllPMS001");
+
+  // ============================================================
+  // STEP 1: Base match stage
+  // ============================================================
+  let matchStage = {};
+
+  // ============================================================
+  // STEP 2: Kung role === "User", i-filter base sa Laboratory ng Encharge
+  // ============================================================
+  if (role === "User") {
+    const laboratory = await Laboratory.findOne({ Encharge: userID });
+
+    console.log("laboratory", laboratory);
+
+    if (!laboratory) {
+      return res.status(404).json({
+        status: "fail",
+        message: "You are not assigned as Encharge to any laboratory.",
+      });
     }
 
-    const laboratoryId = laboratory[0]._id;
+    matchStage._id = laboratory._id;
+  }
 
-    // 2️⃣ Query flags (optional date filter)
-    const { from, to } = req.query;
+  // ============================================================
+  // STEP 3: Kunin ang Laboratory gamit ang matchStage
+  // ============================================================
+  const laboratory = await Laboratory.aggregate([
+    { $match: matchStage },
+    {
+      $project: {
+        _id: 1,
+        LaboratoryName: { $ifNull: ["$LaboratoryName", "N/A"] },
+      },
+    },
+    { $limit: 1 },
+  ]);
 
-    // 3️⃣ Buuin ang date filter
-    const dateFilter = {};
-
-    if (from || to) {
-        dateFilter.createdAt = {};
-
-        if (from) {
-            const fromDate = new Date(from);
-            if (isNaN(fromDate.getTime())) {
-                return res.status(400).json({
-                    status: "fail",
-                    message:
-                        "Invalid 'from' date format. Use YYYY-MM-DD.",
-                });
-            }
-            fromDate.setHours(0, 0, 0, 0);
-            dateFilter.createdAt.$gte = fromDate;
-        }
-
-        if (to) {
-            const toDate = new Date(to);
-            if (isNaN(toDate.getTime())) {
-                return res.status(400).json({
-                    status: "fail",
-                    message:
-                        "Invalid 'to' date format. Use YYYY-MM-DD.",
-                });
-            }
-            toDate.setHours(23, 59, 59, 999);
-            dateFilter.createdAt.$lte = toDate;
-        }
-    }
-
-    // 4️⃣ Kunin LAHAT ng PMS records
-    const pmsRecord = await PMSMaintenanceController.find({
-        ...dateFilter,
-    })
-        .populate("equipmentId")
-        .sort({ createdAt: -1 });
-
-    // 5️⃣ Response
-    res.status(200).json({
-        status: "success",
-        pmsRecord,
-        data: {
-            _id: laboratoryId,
-            LaboratoryName: laboratory[0].LaboratoryName,
-        },
+  if (!laboratory || laboratory.length === 0) {
+    return res.status(404).json({
+      status: "fail",
+      message: "No laboratory found.",
     });
+  }
+
+  const laboratoryId = laboratory[0]._id;
+
+  // ============================================================
+  // STEP 4: Optional date filter
+  // ============================================================
+  const { from, to } = req.query;
+  const dateFilter = {};
+
+  if (from || to) {
+    dateFilter.createdAt = {};
+
+    if (from) {
+      const fromDate = new Date(from);
+      if (isNaN(fromDate.getTime())) {
+        return res.status(400).json({
+          status: "fail",
+          message: "Invalid 'from' date format. Use YYYY-MM-DD.",
+        });
+      }
+      fromDate.setHours(0, 0, 0, 0);
+      dateFilter.createdAt.$gte = fromDate;
+    }
+
+    if (to) {
+      const toDate = new Date(to);
+      if (isNaN(toDate.getTime())) {
+        return res.status(400).json({
+          status: "fail",
+          message: "Invalid 'to' date format. Use YYYY-MM-DD.",
+        });
+      }
+      toDate.setHours(23, 59, 59, 999);
+      dateFilter.createdAt.$lte = toDate;
+    }
+  }
+
+  // ============================================================
+  // STEP 5: Kunin ang PMS records — matching + date filter
+  // ============================================================
+  const pmsQuery = { ...dateFilter };
+
+  // ✅ Idagdag ang laboratoryId sa query kung may lab
+  // ⚠️ Palitan ng totoong field name sa PMS001 schema mo
+  if (laboratoryId) {
+    pmsQuery.laboratoryId = laboratoryId;
+  }
+
+  const pmsRecord = await PMSMaintenanceController.find(pmsQuery)
+    .populate("equipmentId")
+    .sort({ createdAt: -1 });
+
+  // ============================================================
+  // STEP 6: Response
+  // ============================================================
+  res.status(200).json({
+    status: "success",
+    role: role,
+    pmsRecord,
+    data: {
+      _id: laboratoryId,
+      LaboratoryName: laboratory[0].LaboratoryName,
+    },
+  });
 });

@@ -1,3 +1,4 @@
+// src/Controllers/PMS002Controller.js
 const AsyncErrorHandler = require("../Utils/AsyncErrorHandler");
 const mongoose = require("mongoose");
 const CustomError = require("../Utils/CustomError");
@@ -8,14 +9,17 @@ const PMS001 = require("../Models/PMS001");
 
 // ============================================================
 // HELPER — Extract pms002 fields (kasama ang pmsNo)
+// ✅ routineInspection = Boolean na
 // ============================================================
 const extractPMS002 = (pms002Record) => {
     if (!pms002Record) return null;
 
     return {
         _id: pms002Record._id,
-        pmsNo: pms002Record.pmsNo || 0,        // ✅ IDAGDAG
-        routineInspection: pms002Record.routineInspection || "",
+        pmsNo: pms002Record.pmsNo || 0,
+
+        // ✅ 8 boolean fields
+        routineInspection: pms002Record.routineInspection ?? false,
         lubrication: pms002Record.lubrication ?? false,
         overhauling: pms002Record.overhauling ?? false,
         minorAdjustment: pms002Record.minorAdjustment ?? false,
@@ -23,13 +27,76 @@ const extractPMS002 = (pms002Record) => {
         repair: pms002Record.repair ?? false,
         generalRecondition: pms002Record.generalRecondition ?? false,
         repairPart: pms002Record.repairPart ?? false,
+
         remarks: pms002Record.remarks || "",
         createdAt: pms002Record.createdAt,
     };
 };
 
 // ============================================================
-// FIND BY EQUIPMENT — Isang row per PMS001 record
+// HELPER — Build date filter (from / to)
+// ============================================================
+const buildDateFilter = (from, to) => {
+    const dateFilter = {};
+
+    if (from || to) {
+        dateFilter.createdAt = {};
+
+        if (from) {
+            const fromDate = new Date(from);
+            if (isNaN(fromDate.getTime())) {
+                return { error: "Invalid 'from' date format. Use YYYY-MM-DD." };
+            }
+            fromDate.setHours(0, 0, 0, 0);
+            dateFilter.createdAt.$gte = fromDate;
+        }
+
+        if (to) {
+            const toDate = new Date(to);
+            if (isNaN(toDate.getTime())) {
+                return { error: "Invalid 'to' date format. Use YYYY-MM-DD." };
+            }
+            toDate.setHours(23, 59, 59, 999);
+            dateFilter.createdAt.$lte = toDate;
+        }
+    }
+
+    return { dateFilter };
+};
+
+// ============================================================
+// HELPER — Normalize 8 boolean fields
+// Handles: true, false, "D", "", 1, 0
+// ============================================================
+const BOOLEAN_FIELDS = [
+    "routineInspection",
+    "lubrication",
+    "overhauling",
+    "minorAdjustment",
+    "replaceWornOutParts",
+    "repair",
+    "generalRecondition",
+    "repairPart",
+];
+
+const normalizeBooleans = (body) => {
+    const normalized = { ...body };
+
+    BOOLEAN_FIELDS.forEach((field) => {
+        if (field in body) {
+            normalized[field] = Boolean(body[field]);
+        }
+    });
+
+    return normalized;
+};
+
+// ============================================================
+// src/Controllers/PMS002Controller.js
+
+// ============================================================
+// FIND BY EQUIPMENT — Isang row PER PMS002 RECORD
+// ✅ WALANG MERGE — bawat PMS002 record = sariling row
 // ============================================================
 exports.FindByEquipment = AsyncErrorHandler(async (req, res) => {
     try {
@@ -48,9 +115,31 @@ exports.FindByEquipment = AsyncErrorHandler(async (req, res) => {
         const laboratory = await Laboratory.aggregate([
             { $match: { Encharge: userObjectId } },
             {
+                $lookup: {
+                    from: "users",
+                    localField: "Encharge",
+                    foreignField: "_id",
+                    as: "Encharge",
+                },
+            },
+            {
+                $unwind: {
+                    path: "$Encharge",
+                    preserveNullAndEmptyArrays: true,
+                },
+            },
+            {
                 $project: {
                     _id: 1,
                     LaboratoryName: { $ifNull: ["$LaboratoryName", "N/A"] },
+                    performedBy: {
+                        _id: "$Encharge._id",
+                        username: { $ifNull: ["$Encharge.username", ""] },
+                        FirstName: { $ifNull: ["$Encharge.FirstName", ""] },
+                        Middle: { $ifNull: ["$Encharge.Middle", ""] },
+                        LastName: { $ifNull: ["$Encharge.LastName", ""] },
+                        role: { $ifNull: ["$Encharge.role", ""] },
+                    },
                 },
             },
             { $limit: 1 },
@@ -64,6 +153,7 @@ exports.FindByEquipment = AsyncErrorHandler(async (req, res) => {
         }
 
         const laboratoryId = laboratory[0]._id;
+        const performedBy = laboratory[0].performedBy || null;
 
         // 2️⃣ Query flags
         const { from, to, all } = req.query;
@@ -79,44 +169,25 @@ exports.FindByEquipment = AsyncErrorHandler(async (req, res) => {
                 data: {
                     _id: laboratoryId,
                     LaboratoryName: laboratory[0].LaboratoryName,
+                    performedBy,
                 },
             });
         }
 
         // 3️⃣ Date filter
-        const dateFilter = {};
+        const { dateFilter, error: dateError } = buildDateFilter(
+            showAll ? null : from,
+            showAll ? null : to
+        );
 
-        if (!showAll && (from || to)) {
-            dateFilter.createdAt = {};
-
-            if (from) {
-                const fromDate = new Date(from);
-                if (isNaN(fromDate.getTime())) {
-                    return res.status(400).json({
-                        status: "fail",
-                        message:
-                            "Invalid 'from' date format. Use YYYY-MM-DD.",
-                    });
-                }
-                fromDate.setHours(0, 0, 0, 0);
-                dateFilter.createdAt.$gte = fromDate;
-            }
-
-            if (to) {
-                const toDate = new Date(to);
-                if (isNaN(toDate.getTime())) {
-                    return res.status(400).json({
-                        status: "fail",
-                        message:
-                            "Invalid 'to' date format. Use YYYY-MM-DD.",
-                    });
-                }
-                toDate.setHours(23, 59, 59, 999);
-                dateFilter.createdAt.$lte = toDate;
-            }
+        if (dateError) {
+            return res.status(400).json({
+                status: "fail",
+                message: dateError,
+            });
         }
 
-        // 4️⃣ PMS002 records
+        // 4️⃣ PMS002 records — LAHAT
         const pmsRecords = await PMS002.find({
             laboratoryId,
             ...dateFilter,
@@ -128,7 +199,7 @@ exports.FindByEquipment = AsyncErrorHandler(async (req, res) => {
             .sort({ createdAt: -1 })
             .lean();
 
-        // 5️⃣ PMS001 records — LAHAT
+        // 5️⃣ PMS001 records — para sa equipment metadata
         const pms001Records = await PMS001.find({
             laboratoryId,
             ...(showAll ? {} : dateFilter),
@@ -143,99 +214,118 @@ exports.FindByEquipment = AsyncErrorHandler(async (req, res) => {
         console.log("🔍 PMS002 count:", pmsRecords.length);
         console.log("🔍 PMS001 count:", pms001Records.length);
 
-        // 6️⃣ GROUP PMS002 by equipmentId
-        const pms002Map = new Map();
-
-        pmsRecords.forEach((pms002Record) => {
-            if (!pms002Record.equipmentId) return;
-
-            const eqId = pms002Record.equipmentId._id
-                ? pms002Record.equipmentId._id.toString()
-                : pms002Record.equipmentId.toString();
-
-            if (!pms002Map.has(eqId)) pms002Map.set(eqId, []);
-            pms002Map.get(eqId).push(pms002Record);
+        // 6️⃣ Map PMS001 by equipmentId
+        const pms001ByEquipment = new Map();
+        pms001Records.forEach((p1) => {
+            if (!p1.equipmentId) return;
+            const eqId = p1.equipmentId._id
+                ? p1.equipmentId._id.toString()
+                : p1.equipmentId.toString();
+            if (!pms001ByEquipment.has(eqId)) {
+                pms001ByEquipment.set(eqId, p1);
+            }
         });
 
-        // 7️⃣ MERGE: isang row per PMS001 record
-        const merged = pms001Records.map((pms001Record) => {
-            const eqId = pms001Record.equipmentId?._id
-                ? pms001Record.equipmentId._id.toString()
-                : pms001Record.equipmentId?.toString() || null;
+        // ============================================================
+        // ✅ 7️⃣ BUILD MERGED — ISANG ROW PER PMS002 RECORD
+        // WALANG GROUP BY EQUIPMENT — bawat PMS002 = sariling row
+        // ============================================================
+        const merged = pmsRecords.map((pms002Record) => {
+            const eq = pms002Record.equipmentId || {};
 
-            const pms002List = eqId
-                ? pms002Map.get(eqId) || []
-                : [];
+            const eqId = eq._id
+                ? eq._id.toString()
+                : pms002Record.equipmentId?.toString() || null;
 
-            const latestPMS002 = pms002List[0] || null;
-
-            const eq = pms001Record.equipmentId || {};
-
-            const equipment = eq._id
-                ? {
-                      _id: eq._id,
-                      code: eq.code || "N/A",
-                      Brand: eq.Brand || "N/A",
-                      DateAcquired: eq.DateAcquired || null,
-                      SerialNumber: eq.SerialNumber || "N/A",
-                      Specification: eq.Specification || "N/A",
-                      status: eq.status || "N/A",
-                      remarks: eq.remarks || "",
-                      Category: eq.Category || null,
-                  }
+            const matchingPMS001 = eqId
+                ? pms001ByEquipment.get(eqId)
                 : null;
 
             return {
-                equipment,
+                // ✅ Unique PMS002 ID — ito ang gagamitin sa frontend
+                pms002Id: pms002Record._id,
+                pmsNo: pms002Record.pmsNo || 0,
 
-                // PMS001 block
-                pms001: {
-                    _id: pms001Record._id,
-                    code: pms001Record.equipmentId?.code || "N/A",
-                    equipmentName: pms001Record.equipmentId
-                        ? `${
-                              pms001Record.equipmentId.Brand || ""
-                          } ${
-                              pms001Record.equipmentId.Specification ||
-                              ""
-                          }`.trim() || "N/A"
-                        : "N/A",
-                    DateAcquired:
-                        pms001Record.equipmentId?.DateAcquired ||
-                        null,
+                // Equipment info
+                equipment: eq._id
+                    ? {
+                          _id: eq._id,
+                          code: eq.code || "N/A",
+                          Brand: eq.Brand || "N/A",
+                          DateAcquired: eq.DateAcquired || null,
+                          SerialNumber: eq.SerialNumber || "N/A",
+                          Specification: eq.Specification || "N/A",
+                          status: eq.status || "N/A",
+                          remarks: eq.remarks || "",
+                          Category: eq.Category || null,
+                      }
+                    : null,
 
-                    serviceable: pms001Record.serviceable ?? false,
-                    nonServiceable:
-                        pms001Record.nonServiceable ?? false,
-                    type: pms001Record.type || "N/A",
-                    breakdownNo: pms001Record.breakdownNo || "0",
-                    breakdownDuration:
-                        pms001Record.breakdownDuration || "N/A",
-                    availYes: pms001Record.availYes ?? false,
-                    availNo: pms001Record.availNo ?? false,
-                    remarks: pms001Record.remarks || "",
-                    createdAt: pms001Record.createdAt,
+                // PMS001 info (kung may match)
+                pms001: matchingPMS001
+                    ? {
+                          _id: matchingPMS001._id,
+                          code:
+                              matchingPMS001.equipmentId?.code || "N/A",
+                          equipmentName: matchingPMS001.equipmentId
+                              ? `${
+                                    matchingPMS001.equipmentId.Brand ||
+                                    ""
+                                } ${
+                                    matchingPMS001.equipmentId
+                                        .Specification || ""
+                                }`.trim() || "N/A"
+                              : "N/A",
+                          DateAcquired:
+                              matchingPMS001.equipmentId?.DateAcquired ||
+                              null,
+                          serviceable:
+                              matchingPMS001.serviceable ?? false,
+                          nonServiceable:
+                              matchingPMS001.nonServiceable ?? false,
+                          type: matchingPMS001.type || "N/A",
+                          breakdownNo:
+                              matchingPMS001.breakdownNo || "0",
+                          breakdownDuration:
+                              matchingPMS001.breakdownDuration || "N/A",
+                          availYes: matchingPMS001.availYes ?? false,
+                          availNo: matchingPMS001.availNo ?? false,
+                          remarks: matchingPMS001.remarks || "",
+                          createdAt: matchingPMS001.createdAt,
+                      }
+                    : null,
+
+                // ✅ PMS002 fields — DIRECT
+                pms002: {
+                    _id: pms002Record._id,
+                    pmsNo: pms002Record.pmsNo || 0,
+                    routineInspection:
+                        pms002Record.routineInspection ?? false,
+                    lubrication: pms002Record.lubrication ?? false,
+                    overhauling: pms002Record.overhauling ?? false,
+                    minorAdjustment:
+                        pms002Record.minorAdjustment ?? false,
+                    replaceWornOutParts:
+                        pms002Record.replaceWornOutParts ?? false,
+                    repair: pms002Record.repair ?? false,
+                    generalRecondition:
+                        pms002Record.generalRecondition ?? false,
+                    repairPart: pms002Record.repairPart ?? false,
+                    remarks: pms002Record.remarks || "",
+                    createdAt: pms002Record.createdAt,
                 },
 
-                // ✅ PMS002 block — kasama ang pmsNo
-                pms002: extractPMS002(latestPMS002),
-
-                // Flags
-                hasPMS001: true,
-                hasPMS002: pms002List.length > 0,
-                pms002Count: pms002List.length,
-
-                latestActivityAt:
-                    pms001Record.createdAt ||
-                    latestPMS002?.createdAt ||
-                    null,
+                hasPMS001: !!matchingPMS001,
+                hasPMS002: true,
+                pms002Count: 1,
+                latestActivityAt: pms002Record.createdAt,
             };
         });
 
-        // 8️⃣ Sort
+        // 8️⃣ Sort by createdAt desc
         merged.sort((a, b) => {
-            const aDate = a.pms001?.createdAt || 0;
-            const bDate = b.pms001?.createdAt || 0;
+            const aDate = a.pms002?.createdAt || 0;
+            const bDate = b.pms002?.createdAt || 0;
             return new Date(bDate) - new Date(aDate);
         });
 
@@ -251,6 +341,7 @@ exports.FindByEquipment = AsyncErrorHandler(async (req, res) => {
             data: {
                 _id: laboratoryId,
                 LaboratoryName: laboratory[0].LaboratoryName,
+                performedBy,
             },
         });
     } catch (err) {
@@ -269,15 +360,16 @@ exports.FindByEquipment = AsyncErrorHandler(async (req, res) => {
         });
     }
 });
-
 // ============================================================
 // CREATE — Add new PMS002 record (pmsNo auto-increment)
+// ✅ Normalize booleans (routineInspection included)
 // ============================================================
 exports.createPMS002 = AsyncErrorHandler(async (req, res, next) => {
-    const { equipmentId } = req.body;
+    const { equipmentId, laboratoryId } = req.body;
 
     console.log("BODY", req.body);
 
+    // Validate equipmentId
     if (!equipmentId) {
         return next(new CustomError("Equipment ID is required", 400));
     }
@@ -291,8 +383,25 @@ exports.createPMS002 = AsyncErrorHandler(async (req, res, next) => {
         return next(new CustomError("Equipment not found", 404));
     }
 
-    // ✅ pmsNo ay auto-generated sa pre("save") hook
-    const newRecord = await PMS002.create(req.body);
+    // Validate laboratoryId (optional — kung provided)
+    if (laboratoryId) {
+        if (!mongoose.Types.ObjectId.isValid(laboratoryId)) {
+            return next(
+                new CustomError("Invalid Laboratory ID format", 400)
+            );
+        }
+
+        const laboratoryExists = await Laboratory.findById(laboratoryId);
+        if (!laboratoryExists) {
+            return next(new CustomError("Laboratory not found", 404));
+        }
+    }
+
+    // ✅ Normalize booleans bago i-save
+    const normalizedBody = normalizeBooleans(req.body);
+
+    // pmsNo ay auto-generated sa pre("save") hook
+    const newRecord = await PMS002.create(normalizedBody);
 
     if (!newRecord) {
         return next(new CustomError("Failed to create PMS record", 400));
@@ -307,22 +416,100 @@ exports.createPMS002 = AsyncErrorHandler(async (req, res, next) => {
 });
 
 // ============================================================
-// GET ALL — List all PMS002 records
+// GET ALL PMS002 — with Encharge matching
 // ============================================================
 exports.getAllPMS002 = AsyncErrorHandler(async (req, res, next) => {
-    const records = await PMS002.find()
-        .populate("equipmentId")
-        .sort({ pmsNo: -1 }) // ✅ sort by pmsNo (newest first)
-        .lean();
+    try {
+        const userID = req.user._id;
+        const role = req.user.role;
 
-    res.status(200).json({
-        status: "success",
-        totalRecords: records.length,
-        data: records.map((rec) => ({
-            ...rec,
-            pmsNo: rec.pmsNo || 0,             // ✅ ensure pmsNo may value
-        })),
-    });
+        console.log("triggerrr____ getAllPMS002");
+
+        // STEP 1: Base match stage
+        let matchStage = {};
+
+        // STEP 2: Kung role === "User", i-filter base sa Laboratory ng Encharge
+        if (role === "User") {
+            const laboratory = await Laboratory.findOne({ Encharge: userID });
+
+            console.log("laboratory", laboratory);
+
+            if (!laboratory) {
+                return res.status(404).json({
+                    status: "fail",
+                    message:
+                        "You are not assigned as Encharge to any laboratory.",
+                });
+            }
+
+            matchStage._id = laboratory._id;
+        }
+
+        // STEP 3: Kunin ang Laboratory gamit ang matchStage
+        const laboratory = await Laboratory.aggregate([
+            { $match: matchStage },
+            {
+                $project: {
+                    _id: 1,
+                    LaboratoryName: { $ifNull: ["$LaboratoryName", "N/A"] },
+                },
+            },
+            { $limit: 1 },
+        ]);
+
+        if (!laboratory || laboratory.length === 0) {
+            return res.status(404).json({
+                status: "fail",
+                message: "No laboratory found.",
+            });
+        }
+
+        const laboratoryId = laboratory[0]._id;
+
+        // STEP 4: Matching — PMS002 records lang ng lab
+        const pms002Query = {};
+
+        if (laboratoryId) {
+            pms002Query.laboratoryId = laboratoryId;
+        }
+
+        const records = await PMS002.find(pms002Query)
+            .populate("equipmentId")
+            .sort({ pmsNo: -1, createdAt: -1 })
+            .lean();
+
+        console.log("🔍 PMS002 count:", records.length);
+
+        // STEP 5: Response
+        res.status(200).json({
+            status: "success",
+            role: role,
+            totalRecords: records.length,
+            data: records.map((rec) => ({
+                ...rec,
+                pmsNo: rec.pmsNo || 0,
+                routineInspection: rec.routineInspection ?? false,
+            })),
+            laboratory: {
+                _id: laboratory[0]._id,
+                LaboratoryName: laboratory[0].LaboratoryName,
+            },
+        });
+    } catch (err) {
+        console.error("💥 getAllPMS002 CRASHED");
+        console.error("Message:", err.message);
+        console.error("Name:", err.name);
+        console.error("Stack:", err.stack);
+
+        return res.status(500).json({
+            status: "fail",
+            message: "Internal server error",
+            error: {
+                name: err.name,
+                message: err.message,
+            },
+        });
+    }
 });
 
 // ============================================================
@@ -345,7 +532,8 @@ exports.getPMS002ById = AsyncErrorHandler(async (req, res, next) => {
         status: "success",
         data: {
             ...record.toObject(),
-            pmsNo: record.pmsNo || 0,          // ✅ ensure pmsNo
+            pmsNo: record.pmsNo || 0,
+            routineInspection: record.routineInspection ?? false,
         },
     });
 });
@@ -365,7 +553,8 @@ exports.getPMS002ByEquipmentId = AsyncErrorHandler(
 
         const records = await PMS002.find({ equipmentId })
             .populate("equipmentId")
-            .sort({ pmsNo: -1 })               // ✅ sort by pmsNo
+            .populate("laboratoryId")
+            .sort({ pmsNo: -1 })
             .lean();
 
         res.status(200).json({
@@ -373,7 +562,8 @@ exports.getPMS002ByEquipmentId = AsyncErrorHandler(
             totalRecords: records.length,
             data: records.map((rec) => ({
                 ...rec,
-                pmsNo: rec.pmsNo || 0,         // ✅ ensure pmsNo
+                pmsNo: rec.pmsNo || 0,
+                routineInspection: rec.routineInspection ?? false,
             })),
         });
     }
@@ -381,28 +571,52 @@ exports.getPMS002ByEquipmentId = AsyncErrorHandler(
 
 // ============================================================
 // UPDATE — Update existing PMS002 record
+// ✅ Normalize booleans (routineInspection included)
+// ✅ Keep `false` values (huwag i-filter)
 // ============================================================
 exports.updatePMS002 = AsyncErrorHandler(async (req, res, next) => {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
         return next(new CustomError("Invalid ID format", 400));
     }
 
-    // ✅ Iwasan ma-update ang pmsNo
+    // Iwasan ma-update ang pmsNo
+    // ✅ BOOLEAN fields — keep false values (huwag i-filter)
+    // ✅ String fields — filter empty values
     const filteredBody = {};
     Object.keys(req.body).forEach((key) => {
-        if (key === "pmsNo") return; // ❌ skip pmsNo
+        if (key === "pmsNo") return;
+
         const value = req.body[key];
+
+        // ✅ Boolean fields — always include (kahit false)
+        if (BOOLEAN_FIELDS.includes(key)) {
+            filteredBody[key] = Boolean(value);
+            return;
+        }
+
+        // String fields — filter empty values
         if (value !== "" && value !== null && value !== undefined) {
             filteredBody[key] = value;
         }
     });
 
+    // Validate equipmentId kung binago
     if (
         filteredBody.equipmentId &&
         !mongoose.Types.ObjectId.isValid(filteredBody.equipmentId)
     ) {
         return next(
             new CustomError("Invalid Equipment ID format", 400)
+        );
+    }
+
+    // Validate laboratoryId kung binago
+    if (
+        filteredBody.laboratoryId &&
+        !mongoose.Types.ObjectId.isValid(filteredBody.laboratoryId)
+    ) {
+        return next(
+            new CustomError("Invalid Laboratory ID format", 400)
         );
     }
 
@@ -413,7 +627,9 @@ exports.updatePMS002 = AsyncErrorHandler(async (req, res, next) => {
             new: true,
             runValidators: true,
         }
-    ).populate("equipmentId");
+    )
+        .populate("equipmentId")
+        .populate("laboratoryId");
 
     if (!updated) {
         return next(new CustomError("PMS record not found", 404));
@@ -423,7 +639,8 @@ exports.updatePMS002 = AsyncErrorHandler(async (req, res, next) => {
         status: "success",
         data: {
             ...updated.toObject(),
-            pmsNo: updated.pmsNo || 0,          // ✅ ensure pmsNo
+            pmsNo: updated.pmsNo || 0,
+            routineInspection: updated.routineInspection ?? false,
         },
     });
 });
@@ -449,16 +666,64 @@ exports.deletePMS002 = AsyncErrorHandler(async (req, res, next) => {
 });
 
 // ============================================================
-// DISPLAY ALL PMS002 — Isang row per PMS002 record
+// DISPLAY ALL PMS002 — PMS002 records lang (walang merge)
 // ============================================================
 exports.DisplayAllPMS002 = AsyncErrorHandler(async (req, res) => {
     try {
-        // 1. Laboratory
+        const userID = req.user._id;
+        const role = req.user.role;
+
+        console.log("triggerrr____ DisplayAllPMS002");
+
+        // STEP 1: Base match stage
+        let matchStage = {};
+
+        // STEP 2: Kung role === "User", i-filter base sa Laboratory ng Encharge
+        if (role === "User") {
+            const laboratory = await Laboratory.findOne({ Encharge: userID });
+
+            console.log("laboratory", laboratory);
+
+            if (!laboratory) {
+                return res.status(404).json({
+                    status: "fail",
+                    message:
+                        "You are not assigned as Encharge to any laboratory.",
+                });
+            }
+
+            matchStage._id = laboratory._id;
+        }
+
+        // STEP 3: Kunin ang Laboratory + populate Encharge
         const laboratory = await Laboratory.aggregate([
+            { $match: matchStage },
+            {
+                $lookup: {
+                    from: "users",
+                    localField: "Encharge",
+                    foreignField: "_id",
+                    as: "Encharge",
+                },
+            },
+            {
+                $unwind: {
+                    path: "$Encharge",
+                    preserveNullAndEmptyArrays: true,
+                },
+            },
             {
                 $project: {
                     _id: 1,
                     LaboratoryName: { $ifNull: ["$LaboratoryName", "N/A"] },
+                    performedBy: {
+                        _id: "$Encharge._id",
+                        username: { $ifNull: ["$Encharge.username", ""] },
+                        FirstName: { $ifNull: ["$Encharge.FirstName", ""] },
+                        Middle: { $ifNull: ["$Encharge.Middle", ""] },
+                        LastName: { $ifNull: ["$Encharge.LastName", ""] },
+                        role: { $ifNull: ["$Encharge.role", ""] },
+                    },
                 },
             },
             { $limit: 1 },
@@ -471,236 +736,53 @@ exports.DisplayAllPMS002 = AsyncErrorHandler(async (req, res) => {
             });
         }
 
-        // 2. Date filter
+        const laboratoryId = laboratory[0]._id;
+        const performedBy = laboratory[0].performedBy || null;
+
+        // STEP 4: Date filter
         const { from, to } = req.query;
-        const dateFilter = {};
+        const { dateFilter, error: dateError } = buildDateFilter(
+            from,
+            to
+        );
 
-        if (from || to) {
-            dateFilter.createdAt = {};
-
-            if (from) {
-                const fromDate = new Date(from);
-                if (isNaN(fromDate.getTime())) {
-                    return res.status(400).json({
-                        status: "fail",
-                        message:
-                            "Invalid 'from' date format. Use YYYY-MM-DD.",
-                    });
-                }
-                fromDate.setHours(0, 0, 0, 0);
-                dateFilter.createdAt.$gte = fromDate;
-            }
-
-            if (to) {
-                const toDate = new Date(to);
-                if (isNaN(toDate.getTime())) {
-                    return res.status(400).json({
-                        status: "fail",
-                        message:
-                            "Invalid 'to' date format. Use YYYY-MM-DD.",
-                    });
-                }
-                toDate.setHours(23, 59, 59, 999);
-                dateFilter.createdAt.$lte = toDate;
-            }
+        if (dateError) {
+            return res.status(400).json({
+                status: "fail",
+                message: dateError,
+            });
         }
 
-        // 3. PMS002 records — SORTED by pmsNo then createdAt
-        const pmsRecords = await PMS002.find(dateFilter)
+        // STEP 5: Matching — PMS002 records lang ng lab
+        const pms002Query = { ...dateFilter };
+
+        if (laboratoryId) {
+            pms002Query.laboratoryId = laboratoryId;
+        }
+
+        const pmsRecords = await PMS002.find(pms002Query)
             .populate(
                 "equipmentId",
                 "code Brand DateAcquired SerialNumber Specification status remarks Category"
             )
-            .sort({ pmsNo: -1, createdAt: -1 }) // ✅ tiebreaker
-            .lean();
-
-        // 4. PMS001 records — SORTED by createdAt desc (latest first)
-        const pms001Records = await PMS001.find({})
-            .populate(
-                "equipmentId",
-                "code Brand DateAcquired SerialNumber Specification"
-            )
-            .sort({ createdAt: -1 })
+            .sort({ pmsNo: -1, createdAt: -1 })
             .lean();
 
         console.log("🔍 PMS002 count:", pmsRecords.length);
-        console.log("🔍 PMS001 count:", pms001Records.length);
 
-        // 5. GROUP PMS001 by equipmentId (para maging lookup map)
-        const pms001Map = new Map();
-
-        pms001Records.forEach((pms001) => {
-            if (!pms001.equipmentId) return;
-
-            const rawId = pms001.equipmentId._id || pms001.equipmentId;
-            const eqId = rawId.toString();
-
-            if (!pms001Map.has(eqId)) pms001Map.set(eqId, []);
-
-            pms001Map.get(eqId).push({
-                _id: pms001._id,
-                code: pms001.equipmentId.code || "N/A",
-                equipmentName:
-                    [
-                        pms001.equipmentId.Brand,
-                        pms001.equipmentId.Specification,
-                    ]
-                        .filter(Boolean)
-                        .join(" ") || "N/A",
-                DateAcquired: pms001.equipmentId.DateAcquired || null,
-
-                serviceable: pms001.serviceable ?? false,
-                nonServiceable: pms001.nonServiceable ?? false,
-                type: pms001.type || "N/A",
-                breakdownNo: pms001.breakdownNo || "0",
-                breakdownDuration: pms001.breakdownDuration || "N/A",
-                availYes: pms001.availYes ?? false,
-                availNo: pms001.availNo ?? false,
-                remarks: pms001.remarks || "",
-                createdAt: pms001.createdAt,
-            });
-        });
-
-        // 6. Helper — i-build ang pms001 block mula sa latest record
-        const buildPms001Block = (latestPMS001, equipment) => {
-            if (latestPMS001) {
-                return {
-                    code: latestPMS001.code,
-                    equipmentName: latestPMS001.equipmentName,
-                    DateAcquired: latestPMS001.DateAcquired,
-                    serviceable: latestPMS001.serviceable,
-                    nonServiceable: latestPMS001.nonServiceable,
-                    type: latestPMS001.type,
-                    breakdownNo: latestPMS001.breakdownNo,
-                    breakdownDuration: latestPMS001.breakdownDuration,
-                    availYes: latestPMS001.availYes,
-                    availNo: latestPMS001.availNo,
-                    remarks: latestPMS001.remarks,
-                };
-            }
-            return {
-                code: equipment?.code || "N/A",
-                equipmentName: equipment
-                    ? `${equipment.Brand || ""} ${equipment.Specification || ""}`
-                          .trim() || "N/A"
-                    : "N/A",
-                DateAcquired: equipment?.DateAcquired || null,
-            };
-        };
-
-        // 7. Build equipment object mula sa populated data
-        const buildEquipment = (sourceEquip) => {
-            if (!sourceEquip || !sourceEquip._id) return null;
-            return {
-                _id: sourceEquip._id,
-                code: sourceEquip.code || "N/A",
-                Brand: sourceEquip.Brand || "N/A",
-                DateAcquired: sourceEquip.DateAcquired || null,
-                SerialNumber: sourceEquip.SerialNumber || "N/A",
-                Specification: sourceEquip.Specification || "N/A",
-                status: sourceEquip.status || "N/A",
-                remarks: sourceEquip.remarks || "",
-                Category: sourceEquip.Category || null,
-            };
-        };
-
-        // 8. MERGE: isang row PER PMS002 record
-        const merged = [];
-        const pms002EquipmentIds = new Set();
-
-        for (const pms002 of pmsRecords) {
-            const sourceEquip = pms002.equipmentId;
-            if (!sourceEquip) continue;
-
-            const eqId = sourceEquip._id
-                ? sourceEquip._id.toString()
-                : sourceEquip.toString();
-
-            pms002EquipmentIds.add(eqId);
-
-            const pms001List = pms001Map.get(eqId) || [];
-            const latestPMS001 = pms001List[0] || null;
-            const equipment = buildEquipment(sourceEquip);
-
-            merged.push({
-                ...pms002,
-                equipmentId: eqId,
-                equipment,
-
-                // PMS001 block (latest reference lang)
-                pms001: buildPms001Block(latestPMS001, equipment),
-
-                // PMS002 block
-                pms002: extractPMS002(pms002),
-
-                // History arrays
-                pms001History: pms001List,
-
-                // Flags
-                hasPMS001: pms001List.length > 0,
-                hasPMS002: true,
-                pms001Count: pms001List.length,
-                pms002Count: 1,
-
-                latestActivityAt:
-                    pms002.createdAt || latestPMS001?.createdAt || null,
-            });
-        }
-
-        // 9. Optional: isama rin ang equipment na may PMS001 pero WALANG PMS002
-        //    (para hindi mawala sa display — naka-flag lang na hasPMS002: false)
-        for (const [eqId, pms001List] of pms001Map.entries()) {
-            if (pms002EquipmentIds.has(eqId)) continue;
-
-            const latestPMS001 = pms001List[0] || null;
-
-            // Kunin ang equipment info mula sa PMS001 populated data
-            const rawPms001 =
-                pms001Records.find(
-                    (p) =>
-                        ((p.equipmentId?._id || p.equipmentId) || "").toString() ===
-                        eqId
-                ) || null;
-            const equipment = buildEquipment(rawPms001?.equipmentId);
-
-            merged.push({
-                _id: null, // walang PMS002
-                equipmentId: eqId,
-                equipment,
-
-                pms001: buildPms001Block(latestPMS001, equipment),
-                pms002: null,
-
-                pms001History: pms001List,
-
-                hasPMS001: true,
-                hasPMS002: false,
-                pms001Count: pms001List.length,
-                pms002Count: 0,
-
-                latestActivityAt: latestPMS001?.createdAt || null,
-            });
-        }
-
-        // 10. Sort — latest activity first
-        merged.sort((a, b) => {
-            const aDate = a.latestActivityAt || 0;
-            const bDate = b.latestActivityAt || 0;
-            return new Date(bDate) - new Date(aDate);
-        });
-
-        console.log("🔍 merged.length:", merged.length);
-
-        // 11. Response
+        // STEP 6: Response
         return res.status(200).json({
             status: "success",
-            pmsRecord002: merged,
+            role: role,
+            pmsRecord002: pmsRecords.map((rec) => ({
+                ...rec,
+                routineInspection: rec.routineInspection ?? false,
+            })),
             totalPMS002: pmsRecords.length,
-            totalPMS001: pms001Records.length,
-            totalMergedRecords: merged.length,
             data: {
-                _id: laboratory[0]._id,
+                _id: laboratoryId,
                 LaboratoryName: laboratory[0].LaboratoryName,
+                performedBy,
             },
         });
     } catch (err) {

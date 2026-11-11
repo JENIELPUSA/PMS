@@ -4,11 +4,14 @@ dotenv.config({ path: "./config.env" });
 const mongoose = require("mongoose");
 const http = require("http");
 const socketIo = require("socket.io");
-const { spawn } = require("child_process"); 
+const { spawn } = require("child_process");
 const path = require("path");
 const os = require("os");
 const app = require("./app");
 const initDefaultUser = require("./Controller/initDefaultUser");
+
+// ✅ Move cron require here — idedefine mamaya pagkatapos ng mongoose connect
+let maintenanceCron = null;
 
 app.set("trust proxy", true);
 
@@ -23,37 +26,49 @@ const server = http.createServer(app);
 
 // 2. Socket.io Configuration
 const io = socketIo(server, {
-  cors: { 
-    origin: process.env.FRONTEND_URL || "*", 
-    methods: ["GET", "POST","PUT"],
-    credentials: true 
+  cors: {
+    origin: process.env.FRONTEND_URL || "*",
+    methods: ["GET", "POST", "PATCH"],
+    credentials: true,
   },
   allowEIO3: true,
-  transports: ["websocket", "polling"]
+  transports: ["websocket", "polling"],
 });
 
 app.set("io", io);
 
 // 3. Logic for Development vs Production
-// SA VPS (Production), itong block na ito ay hindi mag-e-execute ng spawn.
 if (process.env.NODE_ENV === "development") {
-    const pythonCmd = process.platform === "win32" ? "py" : "python3";
-    const desktopPath = path.join(os.homedir(), "Desktop", "RFID-Bridge", "scan.py");
+  const pythonCmd = process.platform === "win32" ? "py" : "python3";
+  const desktopPath = path.join(
+    os.homedir(),
+    "Desktop",
+    "RFID-Bridge",
+    "scan.py"
+  );
 
-    console.log(`🛠️ Dev Mode: Spawning local Python at ${desktopPath}`);
-    const rfidPython = spawn(pythonCmd, [desktopPath]);
+  console.log(`🛠️ Dev Mode: Spawning local Python at ${desktopPath}`);
+  const rfidPython = spawn(pythonCmd, [desktopPath]);
 
-    rfidPython.stdout.on('data', (data) => {
-        const cardUID = data.toString().trim();
-        if (cardUID && cardUID !== "NO_READER") {
-            console.log(`Local Scan: ${cardUID}`);
-            io.emit("rfid-scanned", { uid: cardUID, timestamp: new Date(), source: "Local-Spawn" });
-        }
-    });
+  rfidPython.stdout.on("data", (data) => {
+    const cardUID = data.toString().trim();
+    if (cardUID && cardUID !== "NO_READER") {
+      console.log(`Local Scan: ${cardUID}`);
+      io.emit("rfid-scanned", {
+        uid: cardUID,
+        timestamp: new Date(),
+        source: "Local-Spawn",
+      });
+    }
+  });
 
-    rfidPython.stderr.on('data', (data) => console.error(`Python Error: ${data}`));
+  rfidPython.stderr.on("data", (data) =>
+    console.error(`Python Error: ${data}`)
+  );
 } else {
-    console.log("🚀 Production Mode: Waiting for remote RFID bridge from your Desktop...");
+  console.log(
+    "🚀 Production Mode: Waiting for remote RFID bridge from your Desktop..."
+  );
 }
 
 // 4. Socket Events (Universal)
@@ -62,10 +77,8 @@ global.connectedUsers = {};
 io.on("connection", (socket) => {
   console.log("New Connection:", socket.id);
 
-  // Ito ang sasalo ng data galing sa bridge.py ng Desktop mo
   socket.on("rfid-scanned", (data) => {
     console.log("UID received from Remote Desktop:", data.uid);
-    // I-broadcast sa Frontend Dashboard
     io.emit("rfid-scanned", { ...data, timestamp: new Date() });
   });
 
@@ -85,18 +98,32 @@ io.on("connection", (socket) => {
 });
 
 // 5. Database & Server Start
-mongoose.connect(process.env.CONN_STR)
+mongoose
+  .connect(process.env.CONN_STR)
   .then(async () => {
-    console.log("Database connected successfully");
+    console.log("✅ Database connected successfully");
+
     await initDefaultUser();
+
+    // ✅ Start cron ONLY AFTER mongoose is connected
+    try {
+      maintenanceCron = require("./cron/maintenanceScheduler");
+      console.log("⏰ Maintenance cron job started.");
+    } catch (err) {
+      console.error("❌ Failed to start cron job:", err.message);
+    }
+
     const port = process.env.PORT || 3000;
-    server.listen(port, () => console.log(`Server running on port ${port}`));
+    server.listen(port, () =>
+      console.log(`🚀 Server running on port ${port}`)
+    );
   })
   .catch((err) => {
-    console.error("DB connection error:", err.message);
+    console.error("💥 DB connection error:", err.message);
     process.exit(1);
   });
 
+// 6. Graceful shutdown (optional but recommended)
 process.on("unhandledRejection", (err) => {
   console.error("Unhandled Rejection!");
   server.close(() => process.exit(1));

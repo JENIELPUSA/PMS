@@ -24,8 +24,10 @@ exports.displayAssign = AsyncErrorHandler(async (req, res) => {
   const userID = req.user._id;
   const role = req.user.role;
 
+  console.log("triggerrr____");
+
   // ============================================================
-  // STEP 1: Base filter — walang filter (para sa Admin/other roles)
+  // STEP 1: Base filter
   // ============================================================
   let matchStage = {};
 
@@ -48,9 +50,8 @@ exports.displayAssign = AsyncErrorHandler(async (req, res) => {
     matchStage.Laboratory = laboratory._id;
   }
 
-
   // ============================================================
-  // STEP 3: Apifeatures — dito papasok ang matchStage
+  // STEP 3: Apifeatures
   // ============================================================
   const features = new Apifeatures(assign.find(matchStage), req.query)
     .filter()
@@ -61,7 +62,7 @@ exports.displayAssign = AsyncErrorHandler(async (req, res) => {
   const filterAssign = await features.query;
 
   // ============================================================
-  // STEP 4: Aggregation
+  // STEP 4: Aggregation (per-assign, hindi grouped)
   // ============================================================
   let assigns = await assign.aggregate([
     { $match: { _id: { $in: filterAssign.map((tool) => tool._id) } } },
@@ -76,6 +77,11 @@ exports.displayAssign = AsyncErrorHandler(async (req, res) => {
       },
     },
     { $unwind: { path: "$LaboratoryInfo", preserveNullAndEmptyArrays: true } },
+
+    // ✅ EXTRA GUARD: Siguraduhing Encharge nga ang user (para sa role User)
+    ...(role === "User"
+      ? [{ $match: { "LaboratoryInfo.Encharge": userID } }]
+      : []),
 
     // ---------------- Join Encharge Users ----------------
     {
@@ -108,9 +114,10 @@ exports.displayAssign = AsyncErrorHandler(async (req, res) => {
         as: "EquipmentsInfo",
       },
     },
-    { $unwind: { path: "$EquipmentsInfo", preserveNullAndEmptyArrays: true } },
+    // ⚠️ Huwag i-unwind ang EquipmentsInfo — array ito
+    // (kung gusto mong array ng equipments per assign)
 
-    // ---------------- Join Categories ----------------
+    // ---------------- Join Categories (per equipment) ----------------
     {
       $lookup: {
         from: "categories",
@@ -119,84 +126,132 @@ exports.displayAssign = AsyncErrorHandler(async (req, res) => {
         as: "CategoryInfo",
       },
     },
-    { $unwind: { path: "$CategoryInfo", preserveNullAndEmptyArrays: true } },
 
-    // ---------------- Join Maintenance Schedule ----------------
+    // ---------------- Join Maintenance Schedule (per equipment) ----------------
     {
       $lookup: {
         from: "maintenanceschedules",
-        let: { eqId: "$EquipmentsInfo._id" },
+        let: { eqIds: "$EquipmentsInfo._id" },
         pipeline: [
-          { $match: { $expr: { $eq: ["$equipmentType", "$$eqId"] } } },
+          { $match: { $expr: { $in: ["$equipmentType", "$$eqIds"] } } },
           { $sort: { lastMaintenanceDate: -1 } },
-          { $limit: 1 },
         ],
         as: "MaintenanceInfo",
       },
     },
+
+    // ---------------- Attach maintenance info sa bawat equipment ----------------
     {
       $addFields: {
-        "EquipmentsInfo.hasMaintenance": {
-          $cond: [{ $gt: [{ $size: "$MaintenanceInfo" }, 0] }, true, false],
-        },
-        "EquipmentsInfo.lastMaintenanceDate": {
-          $ifNull: [
-            { $arrayElemAt: ["$MaintenanceInfo.lastMaintenanceDate", 0] },
-            null,
-          ],
-        },
-        "EquipmentsInfo.nextMaintenanceDate": {
-          $ifNull: [
-            { $arrayElemAt: ["$MaintenanceInfo.nextMaintenanceDate", 0] },
-            null,
-          ],
-        },
-      },
-    },
-
-    {
-      $group: {
-        _id: "$LaboratoryInfo.LaboratoryName",
-        assignCount: { $sum: 1 },
-        assignLabId: { $first: "$_id" },
-        laboratoryId: { $first: "$LaboratoryInfo._id" },
-        departmentId: { $first: "$DepartmentInfo._id" },
-        enchargeId: { $first: "$EnchargeInfo._id" },
-        encharge: { $first: "$EnchargeInfo" },
-        departmentName: { $first: "$DepartmentInfo.DepartmentName" },
-        equipments: {
-          $addToSet: {
-            $mergeObjects: [
-              "$EquipmentsInfo",
-              { categoryName: "$CategoryInfo.CategoryName" },
-            ],
+        EquipmentsInfo: {
+          $map: {
+            input: "$EquipmentsInfo",
+            as: "eq",
+            in: {
+              $mergeObjects: [
+                "$$eq",
+                {
+                  categoryName: {
+                    $let: {
+                      vars: {
+                        cat: {
+                          $arrayElemAt: [
+                            {
+                              $filter: {
+                                input: "$CategoryInfo",
+                                as: "c",
+                                cond: { $eq: ["$$c._id", "$$eq.Category"] },
+                              },
+                            },
+                            0,
+                          ],
+                        },
+                      },
+                      in: "$$cat.CategoryName",
+                    },
+                  },
+                  hasMaintenance: {
+                    $gt: [
+                      {
+                        $size: {
+                          $filter: {
+                            input: "$MaintenanceInfo",
+                            as: "m",
+                            cond: { $eq: ["$$m.equipmentType", "$$eq._id"] },
+                          },
+                        },
+                      },
+                      0,
+                    ],
+                  },
+                  lastMaintenanceDate: {
+                    $let: {
+                      vars: {
+                        m: {
+                          $arrayElemAt: [
+                            {
+                              $filter: {
+                                input: "$MaintenanceInfo",
+                                as: "m",
+                                cond: { $eq: ["$$m.equipmentType", "$$eq._id"] },
+                              },
+                            },
+                            0,
+                          ],
+                        },
+                      },
+                      in: "$$m.lastMaintenanceDate",
+                    },
+                  },
+                  nextMaintenanceDate: {
+                    $let: {
+                      vars: {
+                        m: {
+                          $arrayElemAt: [
+                            {
+                              $filter: {
+                                input: "$MaintenanceInfo",
+                                as: "m",
+                                cond: { $eq: ["$$m.equipmentType", "$$eq._id"] },
+                              },
+                            },
+                            0,
+                          ],
+                        },
+                      },
+                      in: "$$m.nextMaintenanceDate",
+                    },
+                  },
+                },
+              ],
+            },
           },
         },
-        categories: { $addToSet: "$CategoryInfo.CategoryName" },
       },
     },
 
+    // ---------------- Final project ----------------
     {
       $project: {
         _id: 1,
-        assignCount: 1,
-        assignLabId: 1,
-        laboratoryId: 1,
-        departmentId: 1,
-        laboratoryName: "$_id",
+        Laboratory: 1,
+        Equipments: 1,
+        laboratoryName: "$LaboratoryInfo.LaboratoryName",
+        laboratoryId: "$LaboratoryInfo._id",
+        departmentId: "$DepartmentInfo._id",
+        departmentName: "$DepartmentInfo.DepartmentName",
+        enchargeId: "$EnchargeInfo._id",
         encharge: {
           $concat: [
-            "$encharge.FirstName",
+            { $ifNull: ["$EnchargeInfo.FirstName", ""] },
             " ",
-            { $ifNull: ["$encharge.Middle", ""] },
+            { $ifNull: ["$EnchargeInfo.Middle", ""] },
             " ",
-            "$encharge.LastName",
+            { $ifNull: ["$EnchargeInfo.LastName", ""] },
           ],
         },
-        departmentName: 1,
-        equipments: 1,
-        enchargeId: 1,
-        equipmentsCount: { $size: { $ifNull: ["$equipments", []] } },
+        equipments: "$EquipmentsInfo",
+        equipmentsCount: { $size: { $ifNull: ["$EquipmentsInfo", []] } },
       },
     },
   ]);

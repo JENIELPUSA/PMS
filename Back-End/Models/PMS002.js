@@ -30,7 +30,7 @@ const equipmentpms002 = new mongoose.Schema(
             required: [true, "Laboratory ID is required"],
         },
         routineInspection: {
-            type: String,
+            type: Boolean,
             trim: true,
             default: "",
         },

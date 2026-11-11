@@ -350,14 +350,44 @@ exports.deletePMS005 = AsyncErrorHandler(async (req, res, next) => {
 });
 
 // ============================================================
-// DISPLAY ALL PMS005 — Lahat ng records
+// DISPLAY ALL PMS005 — with Encharge matching + optional date filter
 // ============================================================
 exports.DisplayAllPMS005 = AsyncErrorHandler(async (req, res) => {
     try {
+        const userID = req.user._id;
+        const role = req.user.role;
+
+        console.log("triggerrr____ DisplayAllPMS005");
+
         // ============================================================
-        // Kunin lahat ng Laboratory + i-populate ang Encharge (User)
+        // STEP 1: Base match stage
+        // ============================================================
+        let matchStage = {};
+
+        // ============================================================
+        // STEP 2: Kung role === "User", i-filter base sa Laboratory ng Encharge
+        // ============================================================
+        if (role === "User") {
+            const laboratory = await Laboratory.findOne({ Encharge: userID });
+
+            console.log("laboratory", laboratory);
+
+            if (!laboratory) {
+                return res.status(404).json({
+                    status: "fail",
+                    message: "You are not assigned as Encharge to any laboratory.",
+                });
+            }
+
+            matchStage._id = laboratory._id;
+        }
+
+        // ============================================================
+        // STEP 3: Kunin ang Laboratory gamit ang matchStage
+        //         + populate ang Encharge sa pamamagitan ng $lookup
         // ============================================================
         const laboratory = await Laboratory.aggregate([
+            { $match: matchStage },
             {
                 $lookup: {
                     from: "users", // collection name (lowercase + pluralized)
@@ -376,8 +406,6 @@ exports.DisplayAllPMS005 = AsyncErrorHandler(async (req, res) => {
                 $project: {
                     _id: 1,
                     LaboratoryName: { $ifNull: ["$LaboratoryName", "N/A"] },
-
-                    // Tugma sa User schema field names
                     performedBy: {
                         _id: "$Encharge._id",
                         username: { $ifNull: ["$Encharge.username", ""] },
@@ -398,15 +426,16 @@ exports.DisplayAllPMS005 = AsyncErrorHandler(async (req, res) => {
             });
         }
 
+        const laboratoryId = laboratory[0]._id;
         const performedBy = laboratory[0].performedBy || null;
 
         // ============================================================
-        // Query flags (optional date filter)
+        // STEP 4: Query flags (optional date filter)
         // ============================================================
         const { from, to } = req.query;
 
         // ============================================================
-        // Buuin ang date filter (kung may from/to)
+        // STEP 5: Buuin ang date filter (base sa `createdAt`)
         // ============================================================
         const dateFilter = {};
 
@@ -439,26 +468,45 @@ exports.DisplayAllPMS005 = AsyncErrorHandler(async (req, res) => {
         }
 
         // ============================================================
-        // Kunin LAHAT ng PMS005 records
-        //    - Kapag may from/to → filtered by date
-        //    - Kapag wala → lahat ng records
+        // STEP 6: Matching — PMS005 records lang ng lab
         // ============================================================
-        const pmsRecord = await PMSMaintenanceController.find({
-            ...dateFilter,
-        })
+        const pms005Query = { ...dateFilter };
+
+        if (laboratoryId) {
+            // ⚠️ Kung may `laboratoryId` field ang PMS005, direct match:
+            pms005Query.laboratoryId = laboratoryId;
+
+            // ⚠️ KUNG WALANG `laboratoryId` sa PMS005, gamitin ang equipment approach:
+            // const equipmentList = await Equipment.find(
+            //     { laboratory: laboratoryId },
+            //     { _id: 1 }
+            // ).lean();
+            // const equipmentIds = equipmentList.map((e) => e._id);
+            // if (equipmentIds.length > 0) {
+            //     pms005Query.equipmentId = { $in: equipmentIds };
+            // } else {
+            //     pms005Query._id = { $in: [] };
+            // }
+        }
+
+        // ============================================================
+        // STEP 7: Kunin ang PMS005 records — matching + date filter
+        // ============================================================
+        const pmsRecord = await PMSMaintenanceController.find(pms005Query)
             .populate("equipmentId")
             .sort({ createdAt: -1 });
 
         // ============================================================
-        //  Response
+        // STEP 8: Response
         // ============================================================
         res.status(200).json({
             status: "success",
+            role: role,
             pmsRecord,
             data: {
-                _id: laboratory[0]._id,
+                _id: laboratoryId,
                 LaboratoryName: laboratory[0].LaboratoryName,
-                performedBy, // isama ang performedBy
+                performedBy,
             },
         });
     } catch (error) {
