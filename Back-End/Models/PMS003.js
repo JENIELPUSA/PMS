@@ -3,14 +3,6 @@ const mongoose = require("mongoose");
 
 const equipmentpms003 = new mongoose.Schema(
     {
-        // ✅ FK sa PMS001
-        pms001Id: {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: "PMS001",
-            required: [true, "PMS001 ID is required"],
-            index: true,
-        },
-
         date: {
             type: Date,
             required: [true, "Date is required"],
@@ -26,6 +18,8 @@ const equipmentpms003 = new mongoose.Schema(
             ref: "Laboratory",
             required: [true, "Laboratory ID is required"],
         },
+
+        // ✅ WORK DONE fields
         routineInspection: {
             type: String,
             trim: true,
@@ -59,6 +53,18 @@ const equipmentpms003 = new mongoose.Schema(
             type: Boolean,
             default: false,
         },
+
+        // ✅ BAGONG DAGDAG — personnel
+        performedBy: {
+            type: String,
+            trim: true,
+            default: "",
+        },
+        checkedBy: {
+            type: String,
+            trim: true,
+            default: "",
+        },
     },
     {
         timestamps: true,
@@ -67,7 +73,6 @@ const equipmentpms003 = new mongoose.Schema(
 
 // ✅ Indexes
 equipmentpms003.index({ equipmentId: 1 });
-equipmentpms003.index({ pms001Id: 1 });        // ✅ bagong index
 equipmentpms003.index({ laboratoryId: 1 });
 
 const EquipmentHistory = mongoose.model(

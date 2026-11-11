@@ -91,13 +91,7 @@ const normalizeBooleans = (body) => {
     return normalized;
 };
 
-// ============================================================
-// src/Controllers/PMS002Controller.js
 
-// ============================================================
-// FIND BY EQUIPMENT — Isang row PER PMS002 RECORD
-// ✅ WALANG MERGE — bawat PMS002 record = sariling row
-// ============================================================
 exports.FindByEquipment = AsyncErrorHandler(async (req, res) => {
     try {
         // 1️⃣ User → Laboratory
@@ -360,10 +354,8 @@ exports.FindByEquipment = AsyncErrorHandler(async (req, res) => {
         });
     }
 });
-// ============================================================
-// CREATE — Add new PMS002 record (pmsNo auto-increment)
-// ✅ Normalize booleans (routineInspection included)
-// ============================================================
+
+
 exports.createPMS002 = AsyncErrorHandler(async (req, res, next) => {
     const { equipmentId, laboratoryId } = req.body;
 
@@ -673,8 +665,6 @@ exports.DisplayAllPMS002 = AsyncErrorHandler(async (req, res) => {
         const userID = req.user._id;
         const role = req.user.role;
 
-        console.log("triggerrr____ DisplayAllPMS002");
-
         // STEP 1: Base match stage
         let matchStage = {};
 
@@ -768,7 +758,7 @@ exports.DisplayAllPMS002 = AsyncErrorHandler(async (req, res) => {
             .sort({ pmsNo: -1, createdAt: -1 })
             .lean();
 
-        console.log("🔍 PMS002 count:", pmsRecords.length);
+        console.log("🔍 PMS002 count:", pmsRecords);
 
         // STEP 6: Response
         return res.status(200).json({

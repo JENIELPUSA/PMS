@@ -1,3 +1,4 @@
+// src/Controllers/PMSStatisticalController.js
 const AsyncErrorHandler = require("../Utils/AsyncErrorHandler");
 const mongoose = require("mongoose");
 
@@ -9,6 +10,7 @@ const PMS005 = require("../Models/PMS005");
 const PMS006 = require("../Models/PMS006");
 
 const Laboratory = require("../Models/Laboratory");
+const Equipment = require("../Models/Equipment"); // ✅ BAGO — para sa total equipment count
 
 // ============================================================
 // REGISTRY
@@ -204,7 +206,7 @@ function buildBarChartForPms(records) {
 }
 
 // ============================================================
-// 🆕 MAINTENANCE TYPE BAR BUILDER (para sa PMS002/PMS003/PMS004)
+// 🆕 MAINTENANCE TYPE BAR BUILDER
 // ============================================================
 function buildMaintenanceTypeBar(records, fields) {
     const data = fields.map(
@@ -805,11 +807,53 @@ exports.FindStatistical = AsyncErrorHandler(async (req, res) => {
     };
 
     // ============================================================
-    // 1️⃣8️⃣ RESPONSE
+    // 🆕 1️⃣8️⃣ EQUIPMENT COUNTS — Total vs With PMS
+    // ============================================================
+    let totalEquipmentInLab = 0;
+    try {
+        totalEquipmentInLab = await Equipment.countDocuments({
+            laboratory: laboratoryId,
+        });
+    } catch (err) {
+        console.error("❌ Equipment count error:", err.message);
+    }
+
+    const equipmentWithPms = Object.keys(equipmentCoverageMap).length;
+
+    const equipmentCounts = {
+        // ✅ Total equipment sa laboratory (lahat)
+        totalInLaboratory: totalEquipmentInLab,
+
+        // ✅ May kahit isang PMS record
+        withPmsRecords: equipmentWithPms,
+
+        // ✅ Walang PMS record
+        withoutPmsRecords: Math.max(0, totalEquipmentInLab - equipmentWithPms),
+
+        // ✅ Per-PMS unique equipment count
+        perPms: Object.fromEntries(
+            Object.entries(uniqueEquipmentPerPms).map(([k, v]) => [k, v.count])
+        ),
+
+        // ✅ Equipment na may 2+ PMS (cross-covered)
+        crossCovered: crossCoveredEquipment.length,
+
+        // ✅ Equipment na may lahat ng PMS (fully covered)
+        fullyCovered: fullyCoveredEquipment.length,
+
+        // ✅ Total PMS records (lahat ng PMS combined)
+        totalPmsRecords: totalAllRecords,
+    };
+
+    // ============================================================
+    // 1️⃣9️⃣ RESPONSE
     // ============================================================
     res.status(200).json({
         status: "success",
         pmsKeys: PMS_KEYS_ALL,
+
+        // ✅ BAGO — Equipment counts summary
+        equipmentCounts,
 
         // Overall Charts
         pieChart,
@@ -820,9 +864,9 @@ exports.FindStatistical = AsyncErrorHandler(async (req, res) => {
 
         // PMS-specific charts
         pms001ServiceablePie,
-        pms002MaintenanceBar,   // 🆕
-        pms003MaintenanceBar,   // 🆕
-        pms004MaintenanceBar,   // 🆕
+        pms002MaintenanceBar,
+        pms003MaintenanceBar,
+        pms004MaintenanceBar,
 
         // Per-PMS Charts
         pieChartsPerPms,

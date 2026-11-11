@@ -410,12 +410,15 @@ exports.FindByEquipment = AsyncErrorHandler(async (req, res) => {
 
 // ============================================================
 // CREATE — Add new PMS002 record
+// ✅ Kasama na: performedBy, checkedBy
 // ============================================================
 exports.createPMS002 = AsyncErrorHandler(async (req, res, next) => {
     const {
         equipmentId,
         laboratoryId,
         date,
+        performedBy,     // ⬅️ BAGO
+        checkedBy,       // ⬅️ BAGO
         routineInspection,
         lubrication,
         overhauling,
@@ -468,7 +471,13 @@ exports.createPMS002 = AsyncErrorHandler(async (req, res, next) => {
         equipmentId,
         laboratoryId,
         date: parsedDate,
-        routineInspection: routineInspection || "", // ✅ String, hindi Boolean
+
+        // ✅ personnel
+        performedBy: (performedBy || "").trim(),
+        checkedBy: (checkedBy || "").trim(),
+
+        // ✅ work done
+        routineInspection: routineInspection || "",
         lubrication: Boolean(lubrication),
         overhauling: Boolean(overhauling),
         minorAdjustment: Boolean(minorAdjustment),
@@ -490,7 +499,6 @@ exports.createPMS002 = AsyncErrorHandler(async (req, res, next) => {
         data: populated,
     });
 });
-
 // ============================================================
 // GET ALL — List all PMS002 records
 // ============================================================
@@ -755,27 +763,23 @@ exports.DisplayAllPMS003 = AsyncErrorHandler(async (req, res) => {
     const pms003Query = { ...dateFilter };
 
     if (laboratoryId) {
-        // ⚠️ Kung may `laboratoryId` field ang PMS003, direct match:
         pms003Query.laboratoryId = laboratoryId;
-
-        // ⚠️ KUNG WALANG `laboratoryId` sa PMS003, gamitin ang equipment approach:
-        // const equipmentList = await Equipment.find(
-        //     { laboratory: laboratoryId },
-        //     { _id: 1 }
-        // ).lean();
-        // const equipmentIds = equipmentList.map((e) => e._id);
-        // if (equipmentIds.length > 0) {
-        //     pms003Query.equipmentId = { $in: equipmentIds };
-        // } else {
-        //     pms003Query._id = { $in: [] };
-        // }
     }
 
     // ============================================================
     // STEP 7: Kunin ang PMS003 records — matching + date filter
+    // ✅ Explicit select para siguradong kasama ang performedBy/checkedBy
     // ============================================================
     const pmsRecord = await PMS003.find(pms003Query)
-        .populate("equipmentId")
+        .select(
+            "date equipmentId laboratoryId " +
+            "routineInspection lubrication overhauling " +
+            "minorAdjustment replaceWornOutParts repair " +
+            "generalRecondition repairPart " +
+            "performedBy checkedBy " +
+            "createdAt updatedAt"
+        )
+        .populate("equipmentId", "code Brand SerialNumber Category Location")
         .sort({ date: -1, createdAt: -1 });
 
     // ============================================================
@@ -791,4 +795,3 @@ exports.DisplayAllPMS003 = AsyncErrorHandler(async (req, res) => {
         },
     });
 });
-

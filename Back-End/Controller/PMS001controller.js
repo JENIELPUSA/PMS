@@ -1,7 +1,12 @@
+// ============================================================
+// controllers/PMS001Controller.js
+// ============================================================
 const AsyncErrorHandler = require("../Utils/AsyncErrorHandler");
 const mongoose = require("mongoose");
 const CustomError = require("../Utils/CustomError");
-const PMSMaintenanceController = require("../Models/PMS001");
+
+// ---------- MODELS ----------
+const PMS001Model = require("../Models/PMS001");
 const Equipment = require("../Models/Equipment");
 const Laboratory = require("../Models/Laboratory");
 const PMS002 = require("../Models/PMS002");
@@ -41,7 +46,8 @@ function resolveModel(mod, name) {
     );
 }
 
-// ✅ Resolve lahat ng PMS models
+// ✅ Resolve lahat ng PMS models (kasama PMS001)
+const PMS001Resolved = resolveModel(PMS001Model, "PMS001");
 const PMS002Model = resolveModel(PMS002, "PMS002");
 const PMS003Model = resolveModel(PMS003, "PMS003");
 const PMS004Model = resolveModel(PMS004, "PMS004");
@@ -52,6 +58,7 @@ const PMS007Model = resolveModel(PMS007, "PMS007");
 // ✅ DEBUG — alisin pag okay na
 console.log("=== IMPORT CHECK ===");
 [
+    ["PMS001", PMS001Resolved],
     ["PMS002", PMS002Model],
     ["PMS003", PMS003Model],
     ["PMS004", PMS004Model],
@@ -62,6 +69,59 @@ console.log("=== IMPORT CHECK ===");
     console.log(`${name}: ${m.modelName} ✅`);
 });
 console.log("====================");
+
+// ============================================================
+// ✅ FIX #2 — DEFINE `buildPmsDefaults` (dati missing)
+// ============================================================
+const buildPmsDefaults = (name, newRecord) => {
+    switch (name) {
+        case "PMS002":
+            return {
+                pmsNo: 0,
+                remarks: "",
+                routineInspection: false,
+                lubrication: false,
+                overhauling: false,
+                minorAdjustment: false,
+                replaceWornOutParts: false,
+                repair: false,
+                generalRecondition: false,
+                repairPart: false,
+            };
+        case "PMS003":
+            return {
+                date: newRecord?.createdAt || new Date(),
+            };
+        case "PMS004":
+        case "PMS005":
+        case "PMS006":
+        case "PMS007":
+        default:
+            return {};
+    }
+};
+
+// ============================================================
+// HELPER — Unwrap whatever shape `create` returns
+// ============================================================
+const unwrapCreateResult = (result) => {
+    if (!result) return null;
+    if (result.data !== undefined) return result.data;
+    return result;
+};
+
+// ============================================================
+// HELPER — Extract ObjectId from possibly-populated ref
+// ============================================================
+const toObjectId = (ref) => {
+    if (!ref) return null;
+    if (ref instanceof mongoose.Types.ObjectId) return ref;
+    if (typeof ref === "object" && ref._id) return ref._id;
+    if (mongoose.Types.ObjectId.isValid(ref)) {
+        return new mongoose.Types.ObjectId(ref);
+    }
+    return null;
+};
 
 // ============================================================
 // CREATE — Add new PMS001 record + auto-create PMS002–PMS007
@@ -113,12 +173,61 @@ exports.createPMS001 = AsyncErrorHandler(async (req, res, next) => {
             );
         }
 
+        if (!mongoose.Types.ObjectId.isValid(resolvedLaboratoryId)) {
+            return next(
+                new CustomError("Invalid Laboratory ID format", 400)
+            );
+        }
+
         // ---------- 1. CREATE PMS001 ----------
         let newRecord;
         try {
-            newRecord = await PMSMaintenanceController.create(req.body);
+            // ✅ Use the Model directly — NOT PMSMaintenanceController
+            const payload = {
+                ...req.body,
+                equipmentId,
+                laboratoryId: resolvedLaboratoryId,
+            };
+
+            newRecord = await PMS001Resolved.create(payload);
+
+            console.log("🔍 newRecord._id:", newRecord?._id);
+            console.log(
+                "🔍 newRecord.equipmentId:",
+                newRecord?.equipmentId
+            );
         } catch (err) {
             console.error("💥 PMS001 create failed:", err);
+
+            if (err?.code === 11000) {
+                return next(
+                    new CustomError(
+                        `Duplicate PMS001: ${JSON.stringify(
+                            err.keyValue || {}
+                        )}`,
+                        409
+                    )
+                );
+            }
+
+            if (err?.name === "ValidationError") {
+                const details = Object.keys(err.errors || {}).reduce(
+                    (acc, k) => {
+                        acc[k] = err.errors[k].message;
+                        return acc;
+                    },
+                    {}
+                );
+                return next(
+                    new CustomError(
+                        `PMS001 validation failed: ${JSON.stringify(
+                            details
+                        )}`,
+                        400
+                    )
+                );
+            }
+
             return next(
                 new CustomError(
                     `Failed to create PMS001: ${err.message}`,
@@ -127,39 +236,56 @@ exports.createPMS001 = AsyncErrorHandler(async (req, res, next) => {
             );
         }
 
-        if (!newRecord) {
+        if (!newRecord || !newRecord._id) {
             return next(
-                new CustomError("Failed to create PMS record", 400)
+                new CustomError(
+                    "PMS001 created but returned no _id",
+                    500
+                )
             );
         }
 
-        console.log("✅ PMS001 created:", newRecord._id);
+        // ✅ Normalize equipmentId to ObjectId (para safe sa children)
+        const equipmentIdValue = toObjectId(newRecord.equipmentId);
+        const laboratoryIdValue = toObjectId(
+            newRecord.laboratoryId || resolvedLaboratoryId
+        );
+
+        if (!equipmentIdValue) {
+            return next(
+                new CustomError(
+                    "PMS001 created but equipmentId is not a valid ObjectId",
+                    500
+                )
+            );
+        }
 
         // ---------- 2. CREATE PMS002–PMS007 ----------
         const pmsModels = [
-            { name: "PMS002", model: PMS002Model, extra: {} },
-            {
-                name: "PMS003",
-                model: PMS003Model,
-                extra: { date: newRecord.createdAt || new Date() },
-            },
-            { name: "PMS004", model: PMS004Model, extra: {} },
-            { name: "PMS005", model: PMS005Model, extra: {} },
-            { name: "PMS006", model: PMS006Model, extra: {} },
-            { name: "PMS007", model: PMS007Model, extra: {} },
+            { name: "PMS002", model: PMS002Model },
+            { name: "PMS003", model: PMS003Model },
+            { name: "PMS004", model: PMS004Model },
+            { name: "PMS005", model: PMS005Model },
+            { name: "PMS006", model: PMS006Model },
+            { name: "PMS007", model: PMS007Model },
         ];
 
         const pmsResults = await Promise.allSettled(
-            pmsModels.map(({ name, model, extra }) =>
-                model
-                    .create({
-                        pms001Id: newRecord._id,
-                        equipmentId: newRecord.equipmentId,
-                        laboratoryId: resolvedLaboratoryId,
-                        ...extra,
-                    })
-                    .then((doc) => ({ name, doc }))
-            )
+            pmsModels.map(async ({ name, model }) => {
+                const defaults = buildPmsDefaults(name, newRecord);
+
+                const payload = {
+                    pms001Id: newRecord._id,
+                    equipmentId: equipmentIdValue,
+                    laboratoryId: laboratoryIdValue,
+                    ...defaults,
+                };
+
+                console.log(`📤 ${name} payload:`, payload);
+
+                const doc = await model.create(payload);
+                return { name, doc };
+            })
         );
 
         // ---------- 3. COLLECT RESULTS ----------
@@ -171,12 +297,18 @@ exports.createPMS001 = AsyncErrorHandler(async (req, res, next) => {
 
             if (result.status === "fulfilled") {
                 pmsRecords[name] = result.value.doc;
-                console.log(`✅ ${name} created:`, result.value.doc._id);
+                console.log(
+                    `✅ ${name} created:`,
+                    result.value.doc._id
+                );
             } else {
                 const err = result.reason;
+
                 const errDetail = {
                     name: err?.name,
                     message: err?.message,
+                    code: err?.code,
+                    keyValue: err?.keyValue,
                     validation: err?.errors
                         ? Object.keys(err.errors).reduce((acc, k) => {
                               acc[k] = err.errors[k].message;
@@ -184,16 +316,52 @@ exports.createPMS001 = AsyncErrorHandler(async (req, res, next) => {
                           }, {})
                         : undefined,
                 };
-                console.error(`💥 ${name} create failed:`, errDetail);
+
+                console.error(
+                    `💥 ${name} create failed:`,
+                    errDetail
+                );
+
                 pmsRecords[name] = null;
                 pmsErrors[name] = errDetail;
             }
         });
 
-        // ---------- 4. POPULATE PMS001 ----------
-        let populated;
+        // ---------- 3b. ROLLBACK IF ALL FAILED ----------
+        const allFailed = Object.values(pmsRecords).every(
+            (v) => v === null
+        );
+        if (allFailed) {
+            console.warn(
+                "⚠️ All linked PMS records failed — rolling back PMS001"
+            );
+            try {
+                await PMS001Resolved.findByIdAndDelete(newRecord._id);
+            } catch (rbErr) {
+                console.error("💥 Rollback failed:", rbErr);
+            }
+
+            return next(
+                new CustomError(
+                    "Failed to create any linked PMS records. PMS001 creation rolled back.",
+                    500
+                )
+            );
+        }
+
+        // ---------- 4. POPULATE PMS001 (safe) ----------
+        let populated = newRecord;
         try {
-            populated = await newRecord.populate("equipmentId");
+            if (
+                newRecord &&
+                typeof newRecord.populate === "function"
+            ) {
+                populated = await newRecord.populate("equipmentId");
+            } else {
+                populated = await PMS001Resolved.findById(
+                    newRecord._id
+                ).populate("equipmentId");
+            }
         } catch (err) {
             console.error("💥 Populate failed:", err);
             populated = newRecord;
@@ -209,7 +377,6 @@ exports.createPMS001 = AsyncErrorHandler(async (req, res, next) => {
             linkedErrors: hasErrors ? pmsErrors : undefined,
         });
     } catch (err) {
-        // ---------- GLOBAL CATCH ----------
         console.error("💥 createPMS001 CRASHED:");
         console.error("Message:", err.message);
         console.error("Name:", err.name);
@@ -227,8 +394,8 @@ exports.createPMS001 = AsyncErrorHandler(async (req, res, next) => {
 // ============================================================
 // GET ALL — List all PMS001 records
 // ============================================================
-exports.getAllPMS001 = AsyncErrorHandler(async (req, res, next) => {
-    const records = await PMSMaintenanceController.find()
+exports.getAllPMS001 = AsyncErrorHandler(async (req, res) => {
+    const records = await PMS001Resolved.find()
         .populate("equipmentId")
         .sort({ createdAt: -1 });
 
@@ -247,7 +414,7 @@ exports.getPMS001ById = AsyncErrorHandler(async (req, res, next) => {
         return next(new CustomError("Invalid ID format", 400));
     }
 
-    const record = await PMSMaintenanceController.findById(
+    const record = await PMS001Resolved.findById(
         req.params.id
     ).populate("equipmentId");
 
@@ -262,17 +429,19 @@ exports.getPMS001ById = AsyncErrorHandler(async (req, res, next) => {
 });
 
 // ============================================================
-// GET BY EQUIPMENT ID — Lahat ng PMS history ng isang equipment
+// GET BY EQUIPMENT ID
 // ============================================================
 exports.getPMS001ByEquipmentId = AsyncErrorHandler(
     async (req, res, next) => {
         const { equipmentId } = req.params;
 
         if (!mongoose.Types.ObjectId.isValid(equipmentId)) {
-            return next(new CustomError("Invalid Equipment ID format", 400));
+            return next(
+                new CustomError("Invalid Equipment ID format", 400)
+            );
         }
 
-        const records = await PMSMaintenanceController.find({ equipmentId })
+        const records = await PMS001Resolved.find({ equipmentId })
             .populate("equipmentId")
             .sort({ createdAt: -1 });
 
@@ -292,7 +461,6 @@ exports.updatePMS001 = AsyncErrorHandler(async (req, res, next) => {
         return next(new CustomError("Invalid ID format", 400));
     }
 
-    // Filter out empty values
     const filteredBody = {};
     Object.keys(req.body).forEach((key) => {
         const value = req.body[key];
@@ -301,21 +469,19 @@ exports.updatePMS001 = AsyncErrorHandler(async (req, res, next) => {
         }
     });
 
-    // Validate equipmentId kung binago
     if (
         filteredBody.equipmentId &&
         !mongoose.Types.ObjectId.isValid(filteredBody.equipmentId)
     ) {
-        return next(new CustomError("Invalid Equipment ID format", 400));
+        return next(
+            new CustomError("Invalid Equipment ID format", 400)
+        );
     }
 
-    const updated = await PMSMaintenanceController.findByIdAndUpdate(
+    const updated = await PMS001Resolved.findByIdAndUpdate(
         req.params.id,
         filteredBody,
-        {
-            new: true,
-            runValidators: true,
-        }
+        { new: true, runValidators: true }
     ).populate("equipmentId");
 
     if (!updated) {
@@ -329,7 +495,7 @@ exports.updatePMS001 = AsyncErrorHandler(async (req, res, next) => {
 });
 
 // ============================================================
-// DELETE — Remove PMS001 record + auto-delete linked PMS002–PMS007
+// DELETE — Remove PMS001 + auto-delete PMS002–PMS007
 // ============================================================
 exports.deletePMS001 = AsyncErrorHandler(async (req, res, next) => {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
@@ -338,13 +504,11 @@ exports.deletePMS001 = AsyncErrorHandler(async (req, res, next) => {
 
     const { id } = req.params;
 
-    const deleted = await PMSMaintenanceController.findByIdAndDelete(id);
-
+    const deleted = await PMS001Resolved.findByIdAndDelete(id);
     if (!deleted) {
         return next(new CustomError("PMS record not found", 404));
     }
 
-    // ✅ Auto-delete lahat ng linked PMS002–PMS007
     const cascadeModels = [
         { name: "PMS002", model: PMS002Model },
         { name: "PMS003", model: PMS003Model },
@@ -382,7 +546,7 @@ exports.deletePMS001 = AsyncErrorHandler(async (req, res, next) => {
     res.status(200).json({
         status: "success",
         data: null,
-        cascadeDeleted,   // ✅ ilang records bawat PMS00X na-delete
+        cascadeDeleted,
     });
 });
 
@@ -401,7 +565,6 @@ exports.FindByEquipment = AsyncErrorHandler(async (req, res) => {
 
     const userObjectId = new mongoose.Types.ObjectId(userId);
 
-    // Hanapin ang Laboratory ng user
     const laboratory = await Laboratory.aggregate([
         { $match: { Encharge: userObjectId } },
         {
@@ -422,11 +585,9 @@ exports.FindByEquipment = AsyncErrorHandler(async (req, res) => {
 
     const laboratoryId = laboratory[0]._id;
 
-    // 2️⃣ Query flags
     const { from, to, all } = req.query;
     const showAll = all === "true" || all === "1";
 
-    // ✅ Kung walang from, walang to, at hindi 'all' → empty
     if (!showAll && !from && !to) {
         return res.status(200).json({
             status: "success",
@@ -438,7 +599,6 @@ exports.FindByEquipment = AsyncErrorHandler(async (req, res) => {
         });
     }
 
-    // 3️⃣ Buuin ang date filter
     const dateFilter = {};
 
     if (!showAll && (from || to)) {
@@ -471,15 +631,13 @@ exports.FindByEquipment = AsyncErrorHandler(async (req, res) => {
         }
     }
 
-    // 4️⃣ Kunin ang PMS records
-    const pmsRecord = await PMSMaintenanceController.find({
+    const pmsRecord = await PMS001Resolved.find({
         laboratoryId,
         ...dateFilter,
     })
         .populate("equipmentId")
         .sort({ createdAt: -1 });
 
-    // 5️⃣ Response
     res.status(200).json({
         status: "success",
         pmsRecord,
@@ -493,117 +651,102 @@ exports.FindByEquipment = AsyncErrorHandler(async (req, res) => {
 // ============================================================
 // DISPLAY ALL PMS001 — with Encharge matching + optional date filter
 // ============================================================
-exports.DisplayAllPMS001 = AsyncErrorHandler(async (req, res) => {
-  const userID = req.user._id;
-  const role = req.user.role;
+exports.DisplayAllPMS001 = AsyncErrorHandler(async (req, res, next) => {
+    const userID = req.user._id;
+    const role = req.user.role;
 
-  console.log("triggerrr____ DisplayAllPMS001");
+    console.log("triggerrr____ DisplayAllPMS001");
 
-  // ============================================================
-  // STEP 1: Base match stage
-  // ============================================================
-  let matchStage = {};
+    let matchStage = {};
 
-  // ============================================================
-  // STEP 2: Kung role === "User", i-filter base sa Laboratory ng Encharge
-  // ============================================================
-  if (role === "User") {
-    const laboratory = await Laboratory.findOne({ Encharge: userID });
+    if (role === "User") {
+        const laboratory = await Laboratory.findOne({
+            Encharge: userID,
+        });
 
-    console.log("laboratory", laboratory);
+        console.log("laboratory", laboratory);
 
-    if (!laboratory) {
-      return res.status(404).json({
-        status: "fail",
-        message: "You are not assigned as Encharge to any laboratory.",
-      });
+        if (!laboratory) {
+            return res.status(404).json({
+                status: "fail",
+                message:
+                    "You are not assigned as Encharge to any laboratory.",
+            });
+        }
+
+        matchStage._id = laboratory._id;
     }
 
-    matchStage._id = laboratory._id;
-  }
+    const laboratory = await Laboratory.aggregate([
+        { $match: matchStage },
+        {
+            $project: {
+                _id: 1,
+                LaboratoryName: { $ifNull: ["$LaboratoryName", "N/A"] },
+            },
+        },
+        { $limit: 1 },
+    ]);
 
-  // ============================================================
-  // STEP 3: Kunin ang Laboratory gamit ang matchStage
-  // ============================================================
-  const laboratory = await Laboratory.aggregate([
-    { $match: matchStage },
-    {
-      $project: {
-        _id: 1,
-        LaboratoryName: { $ifNull: ["$LaboratoryName", "N/A"] },
-      },
-    },
-    { $limit: 1 },
-  ]);
+    if (!laboratory || laboratory.length === 0) {
+        return res.status(404).json({
+            status: "fail",
+            message: "No laboratory found.",
+        });
+    }
 
-  if (!laboratory || laboratory.length === 0) {
-    return res.status(404).json({
-      status: "fail",
-      message: "No laboratory found.",
+    const laboratoryId = laboratory[0]._id;
+
+    const { from, to } = req.query;
+    const dateFilter = {};
+
+    if (from || to) {
+        dateFilter.createdAt = {};
+
+        if (from) {
+            const fromDate = new Date(from);
+            if (isNaN(fromDate.getTime())) {
+                return res.status(400).json({
+                    status: "fail",
+                    message:
+                        "Invalid 'from' date format. Use YYYY-MM-DD.",
+                });
+            }
+            fromDate.setHours(0, 0, 0, 0);
+            dateFilter.createdAt.$gte = fromDate;
+        }
+
+        if (to) {
+            const toDate = new Date(to);
+            if (isNaN(toDate.getTime())) {
+                return res.status(400).json({
+                    status: "fail",
+                    message:
+                        "Invalid 'to' date format. Use YYYY-MM-DD.",
+                });
+            }
+            toDate.setHours(23, 59, 59, 999);
+            dateFilter.createdAt.$lte = toDate;
+        }
+    }
+
+    const pmsQuery = { ...dateFilter };
+
+    if (laboratoryId) {
+        pmsQuery.laboratoryId = laboratoryId;
+    }
+
+    const pmsRecord = await PMS001Resolved.find(pmsQuery)
+        .populate("equipmentId")
+        .sort({ createdAt: -1 });
+
+    res.status(200).json({
+        status: "success",
+        role,
+        pmsRecord,
+        data: {
+            _id: laboratoryId,
+            LaboratoryName: laboratory[0].LaboratoryName,
+        },
     });
-  }
-
-  const laboratoryId = laboratory[0]._id;
-
-  // ============================================================
-  // STEP 4: Optional date filter
-  // ============================================================
-  const { from, to } = req.query;
-  const dateFilter = {};
-
-  if (from || to) {
-    dateFilter.createdAt = {};
-
-    if (from) {
-      const fromDate = new Date(from);
-      if (isNaN(fromDate.getTime())) {
-        return res.status(400).json({
-          status: "fail",
-          message: "Invalid 'from' date format. Use YYYY-MM-DD.",
-        });
-      }
-      fromDate.setHours(0, 0, 0, 0);
-      dateFilter.createdAt.$gte = fromDate;
-    }
-
-    if (to) {
-      const toDate = new Date(to);
-      if (isNaN(toDate.getTime())) {
-        return res.status(400).json({
-          status: "fail",
-          message: "Invalid 'to' date format. Use YYYY-MM-DD.",
-        });
-      }
-      toDate.setHours(23, 59, 59, 999);
-      dateFilter.createdAt.$lte = toDate;
-    }
-  }
-
-  // ============================================================
-  // STEP 5: Kunin ang PMS records — matching + date filter
-  // ============================================================
-  const pmsQuery = { ...dateFilter };
-
-  // ✅ Idagdag ang laboratoryId sa query kung may lab
-  // ⚠️ Palitan ng totoong field name sa PMS001 schema mo
-  if (laboratoryId) {
-    pmsQuery.laboratoryId = laboratoryId;
-  }
-
-  const pmsRecord = await PMSMaintenanceController.find(pmsQuery)
-    .populate("equipmentId")
-    .sort({ createdAt: -1 });
-
-  // ============================================================
-  // STEP 6: Response
-  // ============================================================
-  res.status(200).json({
-    status: "success",
-    role: role,
-    pmsRecord,
-    data: {
-      _id: laboratoryId,
-      LaboratoryName: laboratory[0].LaboratoryName,
-    },
-  });
 });
