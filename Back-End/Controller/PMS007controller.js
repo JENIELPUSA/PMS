@@ -137,85 +137,230 @@ export const FindByEquipment = AsyncErrorHandler(async (req, res) => {
     });
 });
 
-// ============================================================
-// CREATE
-// ============================================================
+
+
 export const createPMS007 = AsyncErrorHandler(async (req, res, next) => {
-    if (process.env.NODE_ENV !== "production") {
-        console.log("🔍 req.body keys:", Object.keys(req.body || {}));
-    }
+    try {
 
-    const {
-        equipmentId,
-        laboratoryId,
-        codeNo,
-        instrumentName,
-        instrumentType,
-        accuracy,
-        errorObserved,
-        errorCorrected,
-        calibratedBy,
-        date,
-        remarks,
-        performedByFullName,
-    } = req.body;
+        const {
+            equipmentId,
+            laboratoryId,
+            codeNo,
+            pms001Id,
+            instrumentName,
+            instrumentType,
+            accuracy,
+            errorObserved,
+            errorCorrected,
+            calibratedBy,
+            date,
+            remarks,
+        } = req.body;
 
-    // `equipmentId` is optional for PMS007 if you're recording manual calibration
-    if (equipmentId) validateObjectId(equipmentId, "Equipment ID");
-    validateObjectId(laboratoryId, "Laboratory ID");
-
-    if (date && isNaN(new Date(date).getTime())) {
-        return next(new CustomError("Invalid date format", 400));
-    }
-
-    // Check equipment only if provided
-    if (equipmentId) {
-        const equipmentExists = await Equipment.findById(equipmentId);
-        if (!equipmentExists) {
-            return next(new CustomError("Equipment not found", 404));
+        // ------------------------------------------------------
+        // VALIDATE pms001Id
+        // ------------------------------------------------------
+        if (!pms001Id) {
+            return next(new CustomError("PMS001 ID is required", 400));
         }
+
+        if (!mongoose.Types.ObjectId.isValid(pms001Id)) {
+            return next(new CustomError("Invalid PMS001 ID format", 400));
+        }
+
+        // ------------------------------------------------------
+        // VALIDATE laboratoryId
+        // ------------------------------------------------------
+        const labError = validateObjectId(laboratoryId, "Laboratory ID");
+        if (labError) return next(labError);
+
+        const laboratoryExists = await Laboratory.findById(laboratoryId);
+
+        if (!laboratoryExists) {
+            return next(new CustomError("Laboratory not found", 404));
+        }
+
+        // ------------------------------------------------------
+        // VALIDATE equipmentId (OPTIONAL)
+        // ------------------------------------------------------
+        if (equipmentId !== undefined && equipmentId !== null && equipmentId !== "") {
+            const eqError = validateObjectId(equipmentId, "Equipment ID");
+            if (eqError) return next(eqError);
+
+            const equipmentExists = await Equipment.findById(equipmentId);
+
+            if (!equipmentExists) {
+                return next(new CustomError("Equipment not found", 404));
+            }
+        }
+
+        // ------------------------------------------------------
+        // NORMALIZE STRING FIELDS
+        // ------------------------------------------------------
+        const trimOrEmpty = (v) =>
+            v === undefined || v === null ? "" : String(v).trim();
+
+        // ------------------------------------------------------
+        // NORMALIZE DATE
+        // ------------------------------------------------------
+        let normalizedDate;
+
+        if (date !== undefined && date !== null && date !== "") {
+            const d = new Date(date);
+
+            if (Number.isNaN(d.getTime())) {
+                return next(new CustomError("Invalid date format", 400));
+            }
+
+            normalizedDate = d;
+        } else {
+            normalizedDate = new Date();
+        }
+
+        // ------------------------------------------------------
+        // NORMALIZE BODY — WHITELIST
+        // ------------------------------------------------------
+        const normalizedBody = {
+            pms001Id,
+            equipmentId: equipmentId || null,
+            laboratoryId,
+
+            codeNo: trimOrEmpty(codeNo),
+            instrumentName: trimOrEmpty(instrumentName),
+            instrumentType: trimOrEmpty(instrumentType),
+            accuracy: trimOrEmpty(accuracy),
+            errorObserved: trimOrEmpty(errorObserved),
+            errorCorrected: trimOrEmpty(errorCorrected),
+            calibratedBy: trimOrEmpty(calibratedBy),
+
+            date: normalizedDate,
+            remarks: trimOrEmpty(remarks),
+
+            performedByFullName: [
+                req.user.FirstName,
+                req.user.Middle,
+                req.user.LastName,
+            ]
+                .filter(Boolean)
+                .join(" ")
+                .trim(),
+
+            performedBy: req.user._id,
+        };
+
+        if (process.env.NODE_ENV !== "production") {
+            console.log("normalizedBody:", normalizedBody);
+        }
+
+        // ------------------------------------------------------
+        // UPSERT — FIND EXISTING RECORD
+        // ------------------------------------------------------
+        const existing = await PMS007.findOne({ pms001Id })
+            .select("_id")
+            .lean();
+
+        // ------------------------------------------------------
+        // UPSERT — CREATE OR UPDATE
+        // ------------------------------------------------------
+        const record = await PMS007.findOneAndUpdate(
+            { pms001Id },
+            { $set: normalizedBody },
+            {
+                new: true,
+                upsert: true,
+                runValidators: true,
+                setDefaultsOnInsert: true,
+            }
+        );
+
+        if (!record) {
+            return next(
+                new CustomError("Failed to save PMS007 record", 400)
+            );
+        }
+
+        const isUpdate = Boolean(existing);
+
+        if (process.env.NODE_ENV !== "production") {
+            console.log(
+                isUpdate
+                    ? "Updated existing PMS007 record:"
+                    : "Created new PMS007 record:",
+                record._id
+            );
+        }
+
+        // ------------------------------------------------------
+        // POPULATE
+        // ------------------------------------------------------
+        const populated = await record.populate([
+            { path: "equipmentId" },
+            { path: "laboratoryId" },
+            {
+                path: "performedBy",
+                select: "FirstName Middle LastName username role",
+            },
+        ]);
+
+        // ------------------------------------------------------
+        // RESPONSE
+        // ------------------------------------------------------
+        res.status(isUpdate ? 200 : 201).json({
+            status: "success",
+            message: isUpdate
+                ? "PMS007 record updated successfully"
+                : "PMS007 record created successfully",
+            data: populated,
+        });
+
+    } catch (err) {
+        console.error("createPMS007 error:", {
+            name: err.name,
+            message: err.message,
+            code: err.code,
+            errors: err.errors,
+        });
+
+        if (err.name === "ValidationError") {
+            const messages = Object.values(err.errors).map(
+                (e) => e.message
+            );
+
+            return next(
+                new CustomError(
+                    `Validation failed: ${messages.join(", ")}`,
+                    400
+                )
+            );
+        }
+
+        if (err.name === "CastError") {
+            return next(
+                new CustomError(`Invalid ${err.path}: ${err.value}`, 400)
+            );
+        }
+
+        if (err.code === 11000) {
+            const field = Object.keys(err.keyPattern || {})[0] || "field";
+
+            return next(
+                new CustomError(`Duplicate value for ${field}`, 409)
+            );
+        }
+
+        return next(
+            new CustomError(
+                err?.message || "Failed to create PMS007 record",
+                500
+            )
+        );
     }
-
-    const laboratoryExists = await Laboratory.findById(laboratoryId);
-    if (!laboratoryExists) {
-        return next(new CustomError("Laboratory not found", 404));
-    }
-
-    const newRecord = await PMS007.create({
-        equipmentId: equipmentId || null,
-        laboratoryId,
-        codeNo: codeNo || "",
-        instrumentName: instrumentName || "",
-        instrumentType: instrumentType || "",
-        accuracy: accuracy || "",
-        errorObserved: errorObserved || "",
-        errorCorrected: errorCorrected || "",
-        calibratedBy: calibratedBy || "",
-        date: date || Date.now(),
-        remarks: remarks || "",
-        performedByFullName: performedByFullName || "",
-        performedBy: req.user?._id || null,
-    });
-
-    if (!newRecord) {
-        return next(new CustomError("Failed to create PMS007 record", 400));
-    }
-
-    const populated = await newRecord.populate([
-        { path: "equipmentId" },
-        { path: "laboratoryId" },
-        { path: "performedBy", select: "FirstName Middle LastName username role" },
-    ]);
-
-    res.status(201).json({
-        status: "success",
-        data: populated,
-    });
 });
 
-// ============================================================
-// GET ALL
-// ============================================================
+
+
+
+
 export const getAllPMS007 = AsyncErrorHandler(async (req, res, next) => {
     const records = await PMS007.find()
         .populate("equipmentId")
@@ -230,9 +375,7 @@ export const getAllPMS007 = AsyncErrorHandler(async (req, res, next) => {
     });
 });
 
-// ============================================================
-// GET BY ID
-// ============================================================
+
 export const getPMS007ById = AsyncErrorHandler(async (req, res, next) => {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
         return next(new CustomError("Invalid ID format", 400));

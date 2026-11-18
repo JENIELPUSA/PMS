@@ -1,4 +1,3 @@
-// src/Controllers/PMS006Controller.js
 import AsyncErrorHandler from "../Utils/AsyncErrorHandler.js";
 import mongoose from "mongoose";
 import CustomError from "../Utils/CustomError.js";
@@ -6,18 +5,12 @@ import PMS006 from "../Models/PMS006.js";
 import Equipment from "../Models/Equipment.js";
 import Laboratory from "../Models/Laboratory.js";
 
-// ============================================================
-// HELPER — validate ObjectId
-// ============================================================
 const validateObjectId = (id, fieldName) => {
     if (!id) throw new CustomError(`${fieldName} is required`, 400);
     if (!mongoose.Types.ObjectId.isValid(id))
         throw new CustomError(`Invalid ${fieldName} format`, 400);
 };
 
-// ============================================================
-// FindByEquipment
-// ============================================================
 export const FindByEquipment = AsyncErrorHandler(async (req, res) => {
     const userId = req.user?._id;
 
@@ -137,79 +130,212 @@ export const FindByEquipment = AsyncErrorHandler(async (req, res) => {
     });
 });
 
-// ============================================================
-// CREATE
-// ============================================================
 export const createPMS006 = AsyncErrorHandler(async (req, res, next) => {
-    if (process.env.NODE_ENV !== "production") {
-        console.log("🔍 req.body keys:", Object.keys(req.body || {}));
+    try {
+        const {
+            equipmentId,
+            laboratoryId,
+            pms001Id,
+            analysisTrouble,
+            adjustmentSetting,
+            manHourUse,
+            counterMeasures,
+            improvementRepairProcedure,
+            sparePartsMaterialsUsed,
+            incharge,
+            maintenanceDate,
+            performedByFullName,
+        } = req.body;
+
+        if (process.env.NODE_ENV !== "production") {
+            console.log("🔍 req.body keys:", Object.keys(req.body || {}));
+            console.log("pms001Id:", pms001Id);
+        }
+
+        // ------------------------------------------------------
+        // VALIDATE pms001Id
+        // ------------------------------------------------------
+        if (!pms001Id) {
+            return next(new CustomError("PMS001 ID is required", 400));
+        }
+        if (!mongoose.Types.ObjectId.isValid(pms001Id)) {
+            return next(new CustomError("Invalid PMS001 ID format", 400));
+        }
+
+        // ------------------------------------------------------
+        // VALIDATE equipmentId
+        // ------------------------------------------------------
+        validateObjectId(equipmentId, "Equipment ID");
+
+        const equipmentExists = await Equipment.findById(equipmentId);
+        if (!equipmentExists) {
+            return next(new CustomError("Equipment not found", 404));
+        }
+
+        // ------------------------------------------------------
+        // VALIDATE laboratoryId
+        // ------------------------------------------------------
+        validateObjectId(laboratoryId, "Laboratory ID");
+
+        const laboratoryExists = await Laboratory.findById(laboratoryId);
+        if (!laboratoryExists) {
+            return next(new CustomError("Laboratory not found", 404));
+        }
+
+        // ------------------------------------------------------
+        // REMOVE Remarks/remarks (case-insensitive)
+        // ------------------------------------------------------
+        const bodyWithoutRemarks = Object.fromEntries(
+            Object.entries(req.body).filter(
+                ([key]) => key.toLowerCase() !== "remarks"
+            )
+        );
+
+        // ------------------------------------------------------
+        // NORMALIZE fields
+        // ------------------------------------------------------
+        const normalizedBody = { ...bodyWithoutRemarks };
+
+        // Siguraduhing kasama ang required fields
+        normalizedBody.pms001Id = pms001Id;
+        normalizedBody.equipmentId = equipmentId;
+        normalizedBody.laboratoryId = laboratoryId;
+
+        // String fields — trim (default to "" kung wala)
+        const stringFields = [
+            "analysisTrouble",
+            "adjustmentSetting",
+            "counterMeasures",
+            "improvementRepairProcedure",
+            "sparePartsMaterialsUsed",
+            "incharge",
+            "performedByFullName",
+        ];
+        for (const field of stringFields) {
+            if (normalizedBody[field] !== undefined && normalizedBody[field] !== null) {
+                normalizedBody[field] = String(normalizedBody[field]).trim();
+            }
+        }
+
+        // Man_hour_used — numeric guard (supports both camelCase & legacy)
+        const manHourRaw =
+            normalizedBody.manHourUse !== undefined
+                ? normalizedBody.manHourUse
+                : normalizedBody.Man_hour_used;
+        if (manHourRaw !== undefined) {
+            if (manHourRaw === "" || manHourRaw === null) {
+                normalizedBody.manHourUse = "";
+            } else {
+                const num = Number(manHourRaw);
+                if (Number.isNaN(num)) {
+                    return next(
+                        new CustomError("Man_hour_used must be a number", 400)
+                    );
+                }
+                normalizedBody.manHourUse = num;
+            }
+        }
+
+        // maintenanceDate — normalize to Date
+        if (normalizedBody.maintenanceDate) {
+            const d = new Date(normalizedBody.maintenanceDate);
+            if (Number.isNaN(d.getTime())) {
+                return next(new CustomError("Invalid maintenance date format", 400));
+            }
+            normalizedBody.maintenanceDate = d;
+        } else {
+            normalizedBody.maintenanceDate = new Date();
+        }
+
+        // performedBy — galing sa auth user, hindi sa body
+        normalizedBody.performedBy = req.user?._id || null;
+
+        if (process.env.NODE_ENV !== "production") {
+            console.log("normalizedBody:", normalizedBody);
+        }
+
+        // ------------------------------------------------------
+        // UPSERT — atomic (findOneAndUpdate with upsert)
+        // ------------------------------------------------------
+        const existing = await PMS006.findOne({ pms001Id })
+            .select("_id")
+            .lean();
+
+        const record = await PMS006.findOneAndUpdate(
+            { pms001Id },
+            { $set: normalizedBody },
+            {
+                new: true,
+                upsert: true,
+                runValidators: true,
+                setDefaultsOnInsert: true,
+            }
+        );
+
+        if (!record) {
+            return next(new CustomError("Failed to save PMS006 record", 400));
+        }
+
+        const isUpdate = Boolean(existing);
+        if (process.env.NODE_ENV !== "production") {
+            console.log(
+                isUpdate ? "Updated existing PMS006 record:" : "Created new PMS006 record:",
+                record._id
+            );
+        }
+
+        // Populate
+        const populated = await record.populate([
+            { path: "equipmentId" },
+            { path: "laboratoryId" },
+            {
+                path: "performedBy",
+                select: "FirstName Middle LastName username role",
+            },
+        ]);
+
+        res.status(isUpdate ? 200 : 201).json({
+            status: "success",
+            message: isUpdate
+                ? "PMS006 record updated successfully"
+                : "PMS006 record created successfully",
+            data: populated,
+        });
+    } catch (err) {
+        console.error("createPMS006 error:", {
+            name: err.name,
+            message: err.message,
+            code: err.code,
+            errors: err.errors,
+        });
+
+        if (err.name === "ValidationError") {
+            const messages = Object.values(err.errors).map((e) => e.message);
+            return next(
+                new CustomError(`Validation failed: ${messages.join(", ")}`, 400)
+            );
+        }
+
+        if (err.name === "CastError") {
+            return next(
+                new CustomError(`Invalid ${err.path}: ${err.value}`, 400)
+            );
+        }
+
+        if (err.code === 11000) {
+            const field = Object.keys(err.keyPattern || {})[0] || "field";
+            return next(new CustomError(`Duplicate value for ${field}`, 409));
+        }
+
+        return next(
+            new CustomError(
+                err?.message || "Failed to create PMS006 record",
+                500
+            )
+        );
     }
-
-    const {
-        equipmentId,
-        laboratoryId,
-        analysisTrouble,
-        adjustmentSetting,
-        manHourUse,
-        counterMeasures,
-        improvementRepairProcedure,
-        sparePartsMaterialsUsed,
-        incharge,
-        maintenanceDate,
-        performedByFullName,
-    } = req.body;
-
-    validateObjectId(equipmentId, "Equipment ID");
-    validateObjectId(laboratoryId, "Laboratory ID");
-
-    if (maintenanceDate && isNaN(new Date(maintenanceDate).getTime())) {
-        return next(new CustomError("Invalid maintenance date format", 400));
-    }
-
-    const equipmentExists = await Equipment.findById(equipmentId);
-    if (!equipmentExists) {
-        return next(new CustomError("Equipment not found", 404));
-    }
-
-    const laboratoryExists = await Laboratory.findById(laboratoryId);
-    if (!laboratoryExists) {
-        return next(new CustomError("Laboratory not found", 404));
-    }
-
-    const newRecord = await PMS006.create({
-        equipmentId,
-        laboratoryId,
-        analysisTrouble: analysisTrouble || "",
-        adjustmentSetting: adjustmentSetting || "",
-        manHourUse: manHourUse || "",
-        counterMeasures: counterMeasures || "",
-        improvementRepairProcedure: improvementRepairProcedure || "",
-        sparePartsMaterialsUsed: sparePartsMaterialsUsed || "",
-        incharge: incharge || "",
-        maintenanceDate: maintenanceDate || Date.now(),
-        performedByFullName: performedByFullName || "",
-        performedBy: req.user?._id || null,
-    });
-
-    if (!newRecord) {
-        return next(new CustomError("Failed to create PMS006 record", 400));
-    }
-
-    const populated = await newRecord.populate([
-        { path: "equipmentId" },
-        { path: "laboratoryId" },
-        { path: "performedBy", select: "FirstName Middle LastName username role" },
-    ]);
-
-    res.status(201).json({
-        status: "success",
-        data: populated,
-    });
 });
 
-// ============================================================
-// GET ALL
-// ============================================================
 export const getAllPMS006 = AsyncErrorHandler(async (req, res, next) => {
     const records = await PMS006.find()
         .populate("equipmentId")
@@ -224,9 +350,6 @@ export const getAllPMS006 = AsyncErrorHandler(async (req, res, next) => {
     });
 });
 
-// ============================================================
-// GET BY ID
-// ============================================================
 export const getPMS006ById = AsyncErrorHandler(async (req, res, next) => {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
         return next(new CustomError("Invalid ID format", 400));
@@ -247,9 +370,7 @@ export const getPMS006ById = AsyncErrorHandler(async (req, res, next) => {
     });
 });
 
-// ============================================================
-// GET BY EQUIPMENT ID
-// ============================================================
+
 export const getPMS006ByEquipmentId = AsyncErrorHandler(async (req, res, next) => {
     const { equipmentId } = req.params;
 
@@ -270,9 +391,7 @@ export const getPMS006ByEquipmentId = AsyncErrorHandler(async (req, res, next) =
     });
 });
 
-// ============================================================
-// UPDATE
-// ============================================================
+
 export const updatePMS006 = AsyncErrorHandler(async (req, res, next) => {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
         return next(new CustomError("Invalid ID format", 400));
@@ -341,9 +460,7 @@ export const updatePMS006 = AsyncErrorHandler(async (req, res, next) => {
     });
 });
 
-// ============================================================
-// DELETE
-// ============================================================
+
 export const deletePMS006 = AsyncErrorHandler(async (req, res, next) => {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
         return next(new CustomError("Invalid ID format", 400));
@@ -361,10 +478,6 @@ export const deletePMS006 = AsyncErrorHandler(async (req, res, next) => {
     });
 });
 
-
-// ============================================================
-// DISPLAY ALL PMS006 — with Encharge matching + optional date filter
-// ============================================================
 export const DisplayAllPMS006 = AsyncErrorHandler(async (req, res) => {
     try {
         const userID = req.user._id;

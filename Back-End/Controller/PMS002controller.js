@@ -158,8 +158,6 @@ exports.FindByEquipment = AsyncErrorHandler(async (req, res) => {
                 status: "success",
                 pmsRecord: [],
                 totalPMS002: 0,
-                totalPMS001: 0,
-                totalMergedRecords: 0,
                 data: {
                     _id: laboratoryId,
                     LaboratoryName: laboratory[0].LaboratoryName,
@@ -181,7 +179,7 @@ exports.FindByEquipment = AsyncErrorHandler(async (req, res) => {
             });
         }
 
-        // 4️⃣ PMS002 records — LAHAT
+        // 4️⃣ PMS002 records lang
         const pmsRecords = await PMS002.find({
             laboratoryId,
             ...dateFilter,
@@ -193,103 +191,33 @@ exports.FindByEquipment = AsyncErrorHandler(async (req, res) => {
             .sort({ createdAt: -1 })
             .lean();
 
-        // 5️⃣ PMS001 records — para sa equipment metadata
-        const pms001Records = await PMS001.find({
-            laboratoryId,
-            ...(showAll ? {} : dateFilter),
-        })
-            .populate(
-                "equipmentId",
-                "code Brand DateAcquired Specification"
-            )
-            .sort({ createdAt: -1 })
-            .lean();
+        console.log("PMS002 count:", pmsRecords.length);
 
-        console.log("🔍 PMS002 count:", pmsRecords.length);
-        console.log("🔍 PMS001 count:", pms001Records.length);
-
-        // 6️⃣ Map PMS001 by equipmentId
-        const pms001ByEquipment = new Map();
-        pms001Records.forEach((p1) => {
-            if (!p1.equipmentId) return;
-            const eqId = p1.equipmentId._id
-                ? p1.equipmentId._id.toString()
-                : p1.equipmentId.toString();
-            if (!pms001ByEquipment.has(eqId)) {
-                pms001ByEquipment.set(eqId, p1);
-            }
-        });
-
-        // ============================================================
-        // ✅ 7️⃣ BUILD MERGED — ISANG ROW PER PMS002 RECORD
-        // WALANG GROUP BY EQUIPMENT — bawat PMS002 = sariling row
-        // ============================================================
-        const merged = pmsRecords.map((pms002Record) => {
+        // 5️⃣ Build response — PMS002 fields lang
+        const pmsRecord = pmsRecords.map((pms002Record) => {
             const eq = pms002Record.equipmentId || {};
 
-            const eqId = eq._id
-                ? eq._id.toString()
-                : pms002Record.equipmentId?.toString() || null;
-
-            const matchingPMS001 = eqId
-                ? pms001ByEquipment.get(eqId)
-                : null;
-
             return {
-                // ✅ Unique PMS002 ID — ito ang gagamitin sa frontend
+                // PMS002 identity
                 pms002Id: pms002Record._id,
                 pmsNo: pms002Record.pmsNo || 0,
 
                 // Equipment info
                 equipment: eq._id
                     ? {
-                          _id: eq._id,
-                          code: eq.code || "N/A",
-                          Brand: eq.Brand || "N/A",
-                          DateAcquired: eq.DateAcquired || null,
-                          SerialNumber: eq.SerialNumber || "N/A",
-                          Specification: eq.Specification || "N/A",
-                          status: eq.status || "N/A",
-                          remarks: eq.remarks || "",
-                          Category: eq.Category || null,
-                      }
+                        _id: eq._id,
+                        code: eq.code || "N/A",
+                        Brand: eq.Brand || "N/A",
+                        DateAcquired: eq.DateAcquired || null,
+                        SerialNumber: eq.SerialNumber || "N/A",
+                        Specification: eq.Specification || "N/A",
+                        status: eq.status || "N/A",
+                        remarks: eq.remarks || "",
+                        Category: eq.Category || null,
+                    }
                     : null,
 
-                // PMS001 info (kung may match)
-                pms001: matchingPMS001
-                    ? {
-                          _id: matchingPMS001._id,
-                          code:
-                              matchingPMS001.equipmentId?.code || "N/A",
-                          equipmentName: matchingPMS001.equipmentId
-                              ? `${
-                                    matchingPMS001.equipmentId.Brand ||
-                                    ""
-                                } ${
-                                    matchingPMS001.equipmentId
-                                        .Specification || ""
-                                }`.trim() || "N/A"
-                              : "N/A",
-                          DateAcquired:
-                              matchingPMS001.equipmentId?.DateAcquired ||
-                              null,
-                          serviceable:
-                              matchingPMS001.serviceable ?? false,
-                          nonServiceable:
-                              matchingPMS001.nonServiceable ?? false,
-                          type: matchingPMS001.type || "N/A",
-                          breakdownNo:
-                              matchingPMS001.breakdownNo || "0",
-                          breakdownDuration:
-                              matchingPMS001.breakdownDuration || "N/A",
-                          availYes: matchingPMS001.availYes ?? false,
-                          availNo: matchingPMS001.availNo ?? false,
-                          remarks: matchingPMS001.remarks || "",
-                          createdAt: matchingPMS001.createdAt,
-                      }
-                    : null,
-
-                // ✅ PMS002 fields — DIRECT
+                // PMS002 fields
                 pms002: {
                     _id: pms002Record._id,
                     pmsNo: pms002Record.pmsNo || 0,
@@ -309,29 +237,24 @@ exports.FindByEquipment = AsyncErrorHandler(async (req, res) => {
                     createdAt: pms002Record.createdAt,
                 },
 
-                hasPMS001: !!matchingPMS001,
-                hasPMS002: true,
-                pms002Count: 1,
                 latestActivityAt: pms002Record.createdAt,
             };
         });
 
-        // 8️⃣ Sort by createdAt desc
-        merged.sort((a, b) => {
+        // 6️⃣ Sort by createdAt desc
+        pmsRecord.sort((a, b) => {
             const aDate = a.pms002?.createdAt || 0;
             const bDate = b.pms002?.createdAt || 0;
             return new Date(bDate) - new Date(aDate);
         });
 
-        console.log("🔍 merged.length:", merged.length);
+        console.log("pmsRecord.length:", pmsRecord.length);
 
-        // 9️⃣ Response
+        // 7️⃣ Response
         return res.status(200).json({
             status: "success",
-            pmsRecord: merged,
+            pmsRecord,
             totalPMS002: pmsRecords.length,
-            totalPMS001: pms001Records.length,
-            totalMergedRecords: merged.length,
             data: {
                 _id: laboratoryId,
                 LaboratoryName: laboratory[0].LaboratoryName,
@@ -339,7 +262,7 @@ exports.FindByEquipment = AsyncErrorHandler(async (req, res) => {
             },
         });
     } catch (err) {
-        console.error("💥 FindByEquipment CRASHED");
+        console.error("FindByEquipment CRASHED");
         console.error("Message:", err.message);
         console.error("Name:", err.name);
         console.error("Stack:", err.stack);
@@ -355,11 +278,19 @@ exports.FindByEquipment = AsyncErrorHandler(async (req, res) => {
     }
 });
 
-
 exports.createPMS002 = AsyncErrorHandler(async (req, res, next) => {
-    const { equipmentId, laboratoryId } = req.body;
+    const { equipmentId, laboratoryId, pms001Id } = req.body;
 
     console.log("BODY", req.body);
+
+    // Validate pms001Id
+    if (!pms001Id) {
+        return next(new CustomError("PMS001 ID is required", 400));
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(pms001Id)) {
+        return next(new CustomError("Invalid PMS001 ID format", 400));
+    }
 
     // Validate equipmentId
     if (!equipmentId) {
@@ -389,26 +320,51 @@ exports.createPMS002 = AsyncErrorHandler(async (req, res, next) => {
         }
     }
 
-    // ✅ Normalize booleans bago i-save
+    // Normalize booleans bago i-save
     const normalizedBody = normalizeBooleans(req.body);
 
-    // pmsNo ay auto-generated sa pre("save") hook
-    const newRecord = await PMS002.create(normalizedBody);
+    // Siguraduhing kasama ang pms001Id at equipmentId
+    normalizedBody.pms001Id = pms001Id;
+    normalizedBody.equipmentId = equipmentId;
+    if (laboratoryId) normalizedBody.laboratoryId = laboratoryId;
 
-    if (!newRecord) {
-        return next(new CustomError("Failed to create PMS record", 400));
+    // ========================================================
+    // UPSERT — hanapin muna kung existing na ang pms001Id
+    // ========================================================
+    let record = await PMS002.findOne({ pms001Id });
+    let isUpdate = false;
+
+    if (record) {
+        // UPDATE — existing na, i-update lang
+        record = await PMS002.findOneAndUpdate(
+            { pms001Id },
+            { $set: normalizedBody },
+            { new: true, runValidators: true }
+        );
+        isUpdate = true;
+        console.log("Updated existing PMS002 record:", record._id);
+    } else {
+        // CREATE — wala pa, gumawa ng bago
+        record = await PMS002.create(normalizedBody);
+        console.log("Created new PMS002 record:", record._id);
     }
 
-    const populated = await newRecord.populate("equipmentId");
+    if (!record) {
+        return next(new CustomError("Failed to save PMS record", 400));
+    }
 
-    res.status(201).json({
+    const populated = await record.populate("equipmentId");
+
+    res.status(isUpdate ? 200 : 201).json({
         status: "success",
+        message: isUpdate
+            ? "PMS002 record updated successfully"
+            : "PMS002 record created successfully",
         data: populated,
     });
 });
-
 // ============================================================
-// GET ALL PMS002 — with Encharge matching
+// GET ALL PMS002 — PMS002 records lang (walang PMS001)
 // ============================================================
 exports.getAllPMS002 = AsyncErrorHandler(async (req, res, next) => {
     try {
@@ -470,17 +426,35 @@ exports.getAllPMS002 = AsyncErrorHandler(async (req, res, next) => {
             .sort({ pmsNo: -1, createdAt: -1 })
             .lean();
 
-        console.log("🔍 PMS002 count:", records.length);
+        console.log("PMS002 count:", records.length);
 
-        // STEP 5: Response
+        // STEP 5: Response — PMS002 fields lang, walang PMS001
         res.status(200).json({
             status: "success",
             role: role,
             totalRecords: records.length,
             data: records.map((rec) => ({
-                ...rec,
+                // PMS002 identity
+                _id: rec._id,
                 pmsNo: rec.pmsNo || 0,
+
+                // Link fields (IDs lang, walang PMS001 details)
+                equipmentId: rec.equipmentId,
+                laboratoryId: rec.laboratoryId,
+
+                // PMS002 boolean actions
                 routineInspection: rec.routineInspection ?? false,
+                lubrication: rec.lubrication ?? false,
+                overhauling: rec.overhauling ?? false,
+                minorAdjustment: rec.minorAdjustment ?? false,
+                replaceWornOutParts: rec.replaceWornOutParts ?? false,
+                repair: rec.repair ?? false,
+                generalRecondition: rec.generalRecondition ?? false,
+                repairPart: rec.repairPart ?? false,
+
+                // Timestamps
+                createdAt: rec.createdAt,
+                updatedAt: rec.updatedAt,
             })),
             laboratory: {
                 _id: laboratory[0]._id,
@@ -488,7 +462,7 @@ exports.getAllPMS002 = AsyncErrorHandler(async (req, res, next) => {
             },
         });
     } catch (err) {
-        console.error("💥 getAllPMS002 CRASHED");
+        console.error("getAllPMS002 CRASHED");
         console.error("Message:", err.message);
         console.error("Name:", err.name);
         console.error("Stack:", err.stack);
@@ -657,9 +631,6 @@ exports.deletePMS002 = AsyncErrorHandler(async (req, res, next) => {
     });
 });
 
-// ============================================================
-// DISPLAY ALL PMS002 — PMS002 records lang (walang merge)
-// ============================================================
 exports.DisplayAllPMS002 = AsyncErrorHandler(async (req, res) => {
     try {
         const userID = req.user._id;

@@ -104,10 +104,8 @@ mongoose
     console.log("✅ Database connected successfully");
 
     await initDefaultUser();
-
-    // ✅ Start cron ONLY AFTER mongoose is connected
     try {
-      maintenanceCron = require("./cron/maintenanceScheduler");
+      maintenanceCron = require("./Utils/CronJob");
       console.log("⏰ Maintenance cron job started.");
     } catch (err) {
       console.error("❌ Failed to start cron job:", err.message);

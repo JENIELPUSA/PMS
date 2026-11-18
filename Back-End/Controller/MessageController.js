@@ -21,9 +21,6 @@ exports.DisplayMessage = AsyncErrorHandler(async (req, res) => {
   const userId = new mongoose.Types.ObjectId(req.user._id);
   const role = req.user.role;
 
-  console.log("role:", role);
-  console.log("userId (ObjectId):", userId);
-
   // Apply Apifeatures methods on the query
   const features = new Apifeatures(message.find(), req.query)
     .filter()
@@ -35,9 +32,6 @@ exports.DisplayMessage = AsyncErrorHandler(async (req, res) => {
 
   // I-extract ang message IDs
   const messageIds = filteredMessage.map((msg) => msg._id);
-
-  console.log("Filtered message IDs:", messageIds.length);
-  console.log("Looking for user:", userId);
 
   if (messageIds.length === 0) {
     return res.status(200).json({
@@ -66,7 +60,6 @@ exports.DisplayMessage = AsyncErrorHandler(async (req, res) => {
     };
   }
 
-  console.log("Match condition:", matchCondition);
 
   // ==========================================
   // AGGREGATION

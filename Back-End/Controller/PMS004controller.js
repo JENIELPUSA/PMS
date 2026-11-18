@@ -4,10 +4,11 @@ const CustomError = require("../Utils/CustomError");
 const PMSMaintenanceController = require("../Models/PMS004");
 const Equipment = require("../Models/Equipment");
 const Laboratory = require("../Models/Laboratory");
+
 // src/Controllers/PMS004Controller.js
 
 // ============================================================
-// 🔧 Helper — Convert incoming values to strict boolean
+// Helper — Convert incoming values to strict boolean
 // ============================================================
 const toBool = (val) => {
     if (typeof val === "boolean") return val;
@@ -39,193 +40,139 @@ const normalizeBooleans = (obj) => {
 };
 
 // ============================================================
-// FindByEquipment
-// ============================================================
-exports.FindByEquipment = AsyncErrorHandler(async (req, res) => {
-    const userId = req.user?._id;
-
-    if (!userId) {
-        return res.status(400).json({
-            status: "fail",
-            message: "User ID not found in request.",
-        });
-    }
-
-    const userObjectId = new mongoose.Types.ObjectId(userId);
-
-    // ============================================================
-    // 1️⃣ Hanapin ang Laboratory ng user + i-populate ang Encharge (User)
-    // ============================================================
-    const laboratory = await Laboratory.aggregate([
-        {
-            $match: { Encharge: userObjectId },
-        },
-        {
-            $lookup: {
-                from: "users", // collection name (lowercase + pluralized)
-                localField: "Encharge",
-                foreignField: "_id",
-                as: "Encharge",
-            },
-        },
-        {
-            $unwind: {
-                path: "$Encharge",
-                preserveNullAndEmptyArrays: true,
-            },
-        },
-        {
-            $project: {
-                _id: 1,
-                LaboratoryName: { $ifNull: ["$LaboratoryName", "N/A"] },
-
-                // Tugma sa User schema field names
-                performedBy: {
-                    _id: "$Encharge._id",
-                    username: { $ifNull: ["$Encharge.username", ""] },
-                    FirstName: { $ifNull: ["$Encharge.FirstName", ""] },
-                    Middle: { $ifNull: ["$Encharge.Middle", ""] },
-                    LastName: { $ifNull: ["$Encharge.LastName", ""] },
-                    role: { $ifNull: ["$Encharge.role", ""] },
-                },
-            },
-        },
-        { $limit: 1 },
-    ]);
-
-    if (!laboratory || laboratory.length === 0) {
-        return res.status(404).json({
-            status: "fail",
-            message: "No laboratory found for this user.",
-        });
-    }
-
-    const laboratoryId = laboratory[0]._id;
-    const performedBy = laboratory[0].performedBy || null;
-
-    // ============================================================
-    // 2️⃣ Query flags
-    // ============================================================
-    const { from, to, all } = req.query;
-
-    const showAll = all === "true" || all === "1";
-
-    // Kung walang from, walang to, at hindi 'all' → empty
-    if (!showAll && !from && !to) {
-        return res.status(200).json({
-            status: "success",
-            pmsRecord: [],
-            data: {
-                _id: laboratoryId,
-                LaboratoryName: laboratory[0].LaboratoryName,
-                performedBy, // isama ang performedBy
-            },
-        });
-    }
-
-    // ============================================================
-    // 3️⃣ Buuin ang date filter (kung may from/to)
-    // ============================================================
-    const dateFilter = {};
-
-    if (!showAll && (from || to)) {
-        dateFilter.createdAt = {};
-
-        if (from) {
-            const fromDate = new Date(from);
-            if (isNaN(fromDate.getTime())) {
-                return res.status(400).json({
-                    status: "fail",
-                    message: "Invalid 'from' date format. Use YYYY-MM-DD.",
-                });
-            }
-            fromDate.setHours(0, 0, 0, 0);
-            dateFilter.createdAt.$gte = fromDate;
-        }
-
-        if (to) {
-            const toDate = new Date(to);
-            if (isNaN(toDate.getTime())) {
-                return res.status(400).json({
-                    status: "fail",
-                    message: "Invalid 'to' date format. Use YYYY-MM-DD.",
-                });
-            }
-            toDate.setHours(23, 59, 59, 999);
-            dateFilter.createdAt.$lte = toDate;
-        }
-    }
-
-    // ============================================================
-    // 4️⃣ Kunin ang PMS records
-    // ============================================================
-    const pmsRecord = await PMSMaintenanceController.find({
-        laboratoryId,
-        ...dateFilter,
-    })
-        .populate("equipmentId")
-        .sort({ createdAt: -1 });
-
-    console.log("pmsRecord", pmsRecord);
-    console.log("performedBy", performedBy);
-
-    // ============================================================
-    // 5️⃣ Response
-    // ============================================================
-    res.status(200).json({
-        status: "success",
-        pmsRecord,
-        data: {
-            _id: laboratoryId,
-            LaboratoryName: laboratory[0].LaboratoryName,
-            performedBy, // isama ang performedBy
-        },
-    });
-});
-
-// ============================================================
-// CREATE — Add new PMS004 record
+// CREATE — Add new PMS004 record (upsert by pms001Id)
 // ============================================================
 exports.createPMS004 = AsyncErrorHandler(async (req, res, next) => {
-    const { equipmentId } = req.body;
+    try {
+        const { equipmentId, laboratoryId, pms001Id, performedBy } = req.body;
 
-    console.log("BODY", req.body);
+        console.log("BODY", req.body);
+        console.log("pms001Id:", pms001Id);
+        console.log("performedBy:", performedBy);
 
-    // Validate equipmentId
-    if (!equipmentId) {
-        return next(new CustomError("Equipment ID is required", 400));
+        // Validate pms001Id
+        if (!pms001Id) {
+            return next(new CustomError("PMS001 ID is required", 400));
+        }
+
+        if (!mongoose.Types.ObjectId.isValid(pms001Id)) {
+            return next(new CustomError("Invalid PMS001 ID format", 400));
+        }
+
+        // Validate equipmentId
+        if (!equipmentId) {
+            return next(new CustomError("Equipment ID is required", 400));
+        }
+
+        if (!mongoose.Types.ObjectId.isValid(equipmentId)) {
+            return next(new CustomError("Invalid Equipment ID format", 400));
+        }
+
+        const equipmentExists = await Equipment.findById(equipmentId);
+        if (!equipmentExists) {
+            return next(new CustomError("Equipment not found", 404));
+        }
+
+        // Validate laboratoryId (optional)
+        if (laboratoryId) {
+            if (!mongoose.Types.ObjectId.isValid(laboratoryId)) {
+                return next(
+                    new CustomError("Invalid Laboratory ID format", 400)
+                );
+            }
+
+            const laboratoryExists = await Laboratory.findById(laboratoryId);
+            if (!laboratoryExists) {
+                return next(new CustomError("Laboratory not found", 404));
+            }
+        }
+
+        // Remove Remarks/remarks bago i-save (case-insensitive)
+        const { Remarks, remarks, ...bodyWithoutRemarks } = req.body;
+
+        // Normalize boolean fields
+        const normalizedBody = normalizeBooleans(bodyWithoutRemarks);
+
+        // Siguraduhing kasama ang required fields
+        normalizedBody.pms001Id = pms001Id;
+        normalizedBody.equipmentId = equipmentId;
+        if (laboratoryId) normalizedBody.laboratoryId = laboratoryId;
+
+        // performedBy as String
+        if (performedBy) {
+            normalizedBody.performedBy = String(performedBy).trim();
+        }
+
+        console.log("normalizedBody:", normalizedBody);
+
+        // ========================================================
+        // UPSERT — hanapin muna kung existing na ang pms001Id
+        // ========================================================
+        let record = await PMSMaintenanceController.findOne({ pms001Id });
+        let isUpdate = false;
+
+        if (record) {
+            record = await PMSMaintenanceController.findOneAndUpdate(
+                { pms001Id },
+                { $set: normalizedBody },
+                { new: true, runValidators: true }
+            );
+            isUpdate = true;
+            console.log("Updated existing PMS004 record:", record._id);
+        } else {
+            record = await PMSMaintenanceController.create(normalizedBody);
+            console.log("Created new PMS004 record:", record._id);
+        }
+
+        if (!record) {
+            return next(new CustomError("Failed to save PMS record", 400));
+        }
+
+        // Populate equipment only
+        const populated = await record.populate("equipmentId");
+
+        res.status(isUpdate ? 200 : 201).json({
+            status: "success",
+            message: isUpdate
+                ? "PMS004 record updated successfully"
+                : "PMS004 record created successfully",
+            data: populated,
+        });
+    } catch (err) {
+        console.error("createPMS004 error:", {
+            name: err.name,
+            message: err.message,
+            code: err.code,
+            errors: err.errors,
+        });
+
+        if (err.name === "ValidationError") {
+            const messages = Object.values(err.errors).map((e) => e.message);
+            return next(
+                new CustomError(`Validation failed: ${messages.join(", ")}`, 400)
+            );
+        }
+
+        if (err.name === "CastError") {
+            return next(
+                new CustomError(`Invalid ${err.path}: ${err.value}`, 400)
+            );
+        }
+
+        if (err.code === 11000) {
+            const field = Object.keys(err.keyPattern || {})[0] || "field";
+            return next(
+                new CustomError(`Duplicate value for ${field}`, 409)
+            );
+        }
+
+        return next(
+            new CustomError(
+                err?.message || "Failed to create PMS004 record",
+                500
+            )
+        );
     }
-
-    if (!mongoose.Types.ObjectId.isValid(equipmentId)) {
-        return next(new CustomError("Invalid Equipment ID format", 400));
-    }
-
-    // Check kung existing ang Equipment
-    const equipmentExists = await Equipment.findById(equipmentId);
-    if (!equipmentExists) {
-        return next(new CustomError("Equipment not found", 404));
-    }
-
-    // Remove Remarks before saving
-    const { Remarks, ...bodyWithoutRemarks } = req.body;
-
-    // Normalize boolean fields
-    const normalizedBody = normalizeBooleans(bodyWithoutRemarks);
-
-    // Create record
-    const newRecord = await PMSMaintenanceController.create(normalizedBody);
-
-    if (!newRecord) {
-        return next(new CustomError("Failed to create PMS record", 400));
-    }
-
-    // Populate equipment details
-    const populated = await newRecord.populate("equipmentId");
-
-    res.status(201).json({
-        status: "success",
-        data: populated,
-    });
 });
 
 // ============================================================
@@ -301,7 +248,8 @@ exports.updatePMS004 = AsyncErrorHandler(async (req, res, next) => {
     Object.keys(req.body).forEach((key) => {
         const value = req.body[key];
         if (
-            key !== "Remarks" && // skip Remarks
+            key !== "Remarks" &&
+            key !== "remarks" &&
             value !== "" &&
             value !== null &&
             value !== undefined
@@ -316,6 +264,11 @@ exports.updatePMS004 = AsyncErrorHandler(async (req, res, next) => {
         !mongoose.Types.ObjectId.isValid(filteredBody.equipmentId)
     ) {
         return next(new CustomError("Invalid Equipment ID format", 400));
+    }
+
+    // performedBy as String
+    if (filteredBody.performedBy) {
+        filteredBody.performedBy = String(filteredBody.performedBy).trim();
     }
 
     // Normalize boolean fields bago i-update
@@ -363,7 +316,7 @@ exports.deletePMS004 = AsyncErrorHandler(async (req, res, next) => {
 });
 
 // ============================================================
-// FindByEquipment
+// FindByEquipment — isang version lang
 // ============================================================
 exports.FindByEquipment = AsyncErrorHandler(async (req, res) => {
     const userId = req.user?._id;
@@ -377,16 +330,12 @@ exports.FindByEquipment = AsyncErrorHandler(async (req, res) => {
 
     const userObjectId = new mongoose.Types.ObjectId(userId);
 
-    // ============================================================
-    // 1️⃣ Hanapin ang Laboratory ng user + i-populate ang Encharge (User)
-    // ============================================================
+    // 1. Laboratory + Encharge (User)
     const laboratory = await Laboratory.aggregate([
-        {
-            $match: { Encharge: userObjectId },
-        },
+        { $match: { Encharge: userObjectId } },
         {
             $lookup: {
-                from: "users", // collection name (lowercase + pluralized)
+                from: "users",
                 localField: "Encharge",
                 foreignField: "_id",
                 as: "Encharge",
@@ -402,8 +351,6 @@ exports.FindByEquipment = AsyncErrorHandler(async (req, res) => {
             $project: {
                 _id: 1,
                 LaboratoryName: { $ifNull: ["$LaboratoryName", "N/A"] },
-
-                // Tugma sa User schema field names
                 performedBy: {
                     _id: "$Encharge._id",
                     username: { $ifNull: ["$Encharge.username", ""] },
@@ -427,14 +374,10 @@ exports.FindByEquipment = AsyncErrorHandler(async (req, res) => {
     const laboratoryId = laboratory[0]._id;
     const performedBy = laboratory[0].performedBy || null;
 
-    // ============================================================
-    // 2️⃣ Query flags
-    // ============================================================
+    // 2. Query flags
     const { from, to, all } = req.query;
-
     const showAll = all === "true" || all === "1";
 
-    // Kung walang from, walang to, at hindi 'all' → empty
     if (!showAll && !from && !to) {
         return res.status(200).json({
             status: "success",
@@ -442,14 +385,12 @@ exports.FindByEquipment = AsyncErrorHandler(async (req, res) => {
             data: {
                 _id: laboratoryId,
                 LaboratoryName: laboratory[0].LaboratoryName,
-                performedBy, // isama ang performedBy
+                performedBy,
             },
         });
     }
 
-    // ============================================================
-    // 3️⃣ Buuin ang date filter (kung may from/to)
-    // ============================================================
+    // 3. Date filter
     const dateFilter = {};
 
     if (!showAll && (from || to)) {
@@ -480,9 +421,7 @@ exports.FindByEquipment = AsyncErrorHandler(async (req, res) => {
         }
     }
 
-    // ============================================================
-    // 4️⃣ Kunin ang PMS records
-    // ============================================================
+    // 4. PMS records
     const pmsRecord = await PMSMaintenanceController.find({
         laboratoryId,
         ...dateFilter,
@@ -490,19 +429,14 @@ exports.FindByEquipment = AsyncErrorHandler(async (req, res) => {
         .populate("equipmentId")
         .sort({ createdAt: -1 });
 
-    console.log("pmsRecord", pmsRecord);
-    console.log("performedBy", performedBy);
-
-    // ============================================================
-    // 5️⃣ Response
-    // ============================================================
+    // 5. Response
     res.status(200).json({
         status: "success",
         pmsRecord,
         data: {
             _id: laboratoryId,
             LaboratoryName: laboratory[0].LaboratoryName,
-            performedBy, // isama ang performedBy
+            performedBy,
         },
     });
 });
@@ -517,32 +451,25 @@ exports.DisplayAllPMS004 = AsyncErrorHandler(async (req, res) => {
 
         console.log("triggerrr____ DisplayAllPMS004");
 
-        // ============================================================
         // STEP 1: Base match stage
-        // ============================================================
         let matchStage = {};
 
-        // ============================================================
-        // STEP 2: Kung role === "User", i-filter base sa Laboratory ng Encharge
-        // ============================================================
+        // STEP 2: Role === "User" -> filter by Encharge
         if (role === "User") {
             const laboratory = await Laboratory.findOne({ Encharge: userID });
-
-            console.log("laboratory", laboratory);
 
             if (!laboratory) {
                 return res.status(404).json({
                     status: "fail",
-                    message: "You are not assigned as Encharge to any laboratory.",
+                    message:
+                        "You are not assigned as Encharge to any laboratory.",
                 });
             }
 
             matchStage._id = laboratory._id;
         }
 
-        // ============================================================
-        // STEP 3: Kunin ang Laboratory gamit ang matchStage
-        // ============================================================
+        // STEP 3: Laboratory
         const laboratory = await Laboratory.aggregate([
             { $match: matchStage },
             {
@@ -563,18 +490,14 @@ exports.DisplayAllPMS004 = AsyncErrorHandler(async (req, res) => {
 
         const laboratoryId = laboratory[0]._id;
 
-        // ============================================================
-        // STEP 4: Query flags (optional date filter)
-        // ============================================================
+        // STEP 4: Query flags
         const { from, to } = req.query;
 
-        // ============================================================
-        // STEP 5: Buuin ang date filter (base sa `date` field)
-        // ============================================================
+        // STEP 5: Date filter (base sa createdAt)
         const dateFilter = {};
 
         if (from || to) {
-            dateFilter.date = {};
+            dateFilter.createdAt = {};
 
             if (from) {
                 const fromDate = new Date(from);
@@ -585,7 +508,7 @@ exports.DisplayAllPMS004 = AsyncErrorHandler(async (req, res) => {
                     });
                 }
                 fromDate.setHours(0, 0, 0, 0);
-                dateFilter.date.$gte = fromDate;
+                dateFilter.createdAt.$gte = fromDate;
             }
 
             if (to) {
@@ -597,42 +520,20 @@ exports.DisplayAllPMS004 = AsyncErrorHandler(async (req, res) => {
                     });
                 }
                 toDate.setHours(23, 59, 59, 999);
-                dateFilter.date.$lte = toDate;
+                dateFilter.createdAt.$lte = toDate;
             }
         }
 
-        // ============================================================
-        // STEP 6: Matching — PMS004 records lang ng lab
-        // ============================================================
+        // STEP 6: Matching
         const pms004Query = { ...dateFilter };
+        if (laboratoryId) pms004Query.laboratoryId = laboratoryId;
 
-        if (laboratoryId) {
-            // ⚠️ Kung may `laboratoryId` field ang PMS004, direct match:
-            pms004Query.laboratoryId = laboratoryId;
-
-            // ⚠️ KUNG WALANG `laboratoryId` sa PMS004, gamitin ang equipment approach:
-            // const equipmentList = await Equipment.find(
-            //     { laboratory: laboratoryId },
-            //     { _id: 1 }
-            // ).lean();
-            // const equipmentIds = equipmentList.map((e) => e._id);
-            // if (equipmentIds.length > 0) {
-            //     pms004Query.equipmentId = { $in: equipmentIds };
-            // } else {
-            //     pms004Query._id = { $in: [] };
-            // }
-        }
-
-        // ============================================================
-        // STEP 7: Kunin ang PMS004 records — matching + date filter
-        // ============================================================
+        // STEP 7: Fetch records
         const pmsRecord = await PMSMaintenanceController.find(pms004Query)
             .populate("equipmentId")
-            .sort({ date: -1, createdAt: -1 });
+            .sort({ createdAt: -1 });
 
-        // ============================================================
         // STEP 8: Response
-        // ============================================================
         res.status(200).json({
             status: "success",
             role: role,
@@ -643,9 +544,8 @@ exports.DisplayAllPMS004 = AsyncErrorHandler(async (req, res) => {
             },
         });
     } catch (error) {
-        console.error("❌ DisplayAllPMS004 error:", error);
+        console.error("DisplayAllPMS004 error:", error);
 
-        // ✅ Kung hindi pa nasend ang response, mag-send ng 500
         if (!res.headersSent) {
             return res.status(500).json({
                 status: "fail",

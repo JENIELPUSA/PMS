@@ -1,46 +1,63 @@
-// src/Models/EquipmentHistory.js  (o src/Models/PMS005.js)
+// src/Models/PMS005.js
 const mongoose = require("mongoose");
 
-const equipmentPms004Schema = new mongoose.Schema(
+const pms005Schema = new mongoose.Schema(
     {
         // ✅ FK sa PMS001
         pms001Id: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "PMS001",
             required: [true, "PMS001 ID is required"],
+            unique: true,          // ✅ UNIQUE para sa upsert
             index: true,
         },
 
-        // Reference sa Equipment model
+        // FK sa Equipment
         equipmentId: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "Equipment",
             required: [true, "Equipment ID is required"],
         },
 
-        // Reference sa Laboratory model
+        // FK sa Laboratory
         laboratoryId: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "Laboratory",
             required: [true, "Laboratory ID is required"],
         },
-        // Optional fields (existing)
+
+        // ✅ Optional fields
         Spare_Parts: {
             type: String,
             trim: true,
             default: "",
         },
+
+        // ✅ NUMBER na (dati String)
         Man_hour_used: {
-            type: String,
-            trim: true,
-            default: "",
+            type: Number,
+            min: 0,
+            default: null,
         },
+
         Problem_Encounter: {
             type: String,
             trim: true,
             default: "",
         },
-        incharge: { type: String, trim: true, default: "" },
+
+        // ✅ Tech / Lab In-Charge (String name)
+        Tech_Lab_InCharge: {
+            type: String,
+            trim: true,
+            default: "",
+        },
+
+        // ✅ PMS number (kung may generator sa pre-save)
+        pmsNo: {
+            type: String,
+            trim: true,
+        },
 
         // Date ng maintenance
         Date: {
@@ -50,36 +67,46 @@ const equipmentPms004Schema = new mongoose.Schema(
     },
     {
         timestamps: true,
+        toJSON: { virtuals: true },
+        toObject: { virtuals: true },
     }
 );
 
 // ✅ Indexes
-equipmentPms004Schema.index({ equipmentId: 1 });
-equipmentPms004Schema.index({ pms001Id: 1 });              // ✅ bagong index
-equipmentPms004Schema.index({ laboratoryId: 1 });
-equipmentPms004Schema.index({ Date: -1 });
-equipmentPms004Schema.index({ equipmentId: 1, laboratoryId: 1 });
+pms005Schema.index({ equipmentId: 1 });
+pms005Schema.index({ laboratoryId: 1 });
+pms005Schema.index({ Date: -1 });
+pms005Schema.index({ equipmentId: 1, laboratoryId: 1 });
 
-// Virtual para sa populated performedBy
-equipmentPms004Schema.virtual("performedByFullName").get(function () {
-    if (!this.performedBy) return "";
-    if (typeof this.performedBy === "string") return this.performedBy;
+// ✅ Virtual para sa Tech / Lab In-Charge
+pms005Schema.virtual("techLabInChargeFullName").get(function () {
+    if (!this.Tech_Lab_InCharge) return "";
+    if (typeof this.Tech_Lab_InCharge === "string") {
+        return this.Tech_Lab_InCharge;
+    }
     return [
-        this.performedBy.FirstName,
-        this.performedBy.Middle,
-        this.performedBy.LastName,
+        this.Tech_Lab_InCharge.FirstName,
+        this.Tech_Lab_InCharge.Middle,
+        this.Tech_Lab_InCharge.LastName,
     ]
         .filter(Boolean)
         .join(" ")
         .trim();
 });
 
-equipmentPms004Schema.set("toJSON", { virtuals: true });
-equipmentPms004Schema.set("toObject", { virtuals: true });
+// ✅ Pre-save hook para sa pmsNo (kung wala pang ibang generator)
+pms005Schema.pre("save", async function (next) {
+    if (this.isNew && !this.pmsNo) {
+        try {
+            const count = await this.constructor.countDocuments();
+            this.pmsNo = String(count + 1).padStart(5, "0");
+        } catch (err) {
+            return next(err);
+        }
+    }
+    next();
+});
 
-const EquipmentHistory = mongoose.model(
-    "pms005",
-    equipmentPms004Schema
-);
+const PMS005 = mongoose.model("pms005", pms005Schema);
 
-module.exports = EquipmentHistory;
+module.exports = PMS005;

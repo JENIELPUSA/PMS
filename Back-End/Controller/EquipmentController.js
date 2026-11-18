@@ -9,7 +9,7 @@ const CustomError = require("../Utils/CustomError");
 const Equipment = require("../Models/Equipment");
 const Laboratory = require("../Models/Laboratory");
 const Assign = require("../Models/AssigningEquipment");
-const PMSMaintenanceController=require("../Models/PMS001")
+const PMSMaintenanceController = require("../Models/PMS001")
 
 // Mapping of collections and their corresponding field names
 const collectionFieldMapping = {
@@ -691,296 +691,302 @@ exports.getSpecificEquipment = AsyncErrorHandler(async (req, res, next) => {
 });
 
 exports.FindByCode = AsyncErrorHandler(async (req, res) => {
-    const { code } = req.params;
-    const userId = req.user?._id;
+  const { code } = req.params;
+  const userId = req.user?._id;
 
-    // ✅ DEBUG LOGS — alisin pag okay na
-    console.log("🔍 raw param:", JSON.stringify(code));
-    console.log("🔍 decoded:", JSON.stringify(decodeURIComponent(code)));
-    console.log("🔍 user:", userId);
+  if (!userId) {
+    return res.status(400).json({
+      status: "fail",
+      message: "User ID not found in request.",
+    });
+  }
 
-    if (!userId) {
-        return res.status(400).json({
-            status: "fail",
-            message: "User ID not found in request.",
-        });
-    }
+  if (!code) {
+    return res.status(400).json({
+      status: "fail",
+      message: "Please provide a code",
+    });
+  }
 
-    if (!code) {
-        return res.status(400).json({
-            status: "fail",
-            message: "Please provide a code",
-        });
-    }
+  const normalizedCode = decodeURIComponent(code).trim();
+  console.log("🔍 normalizedCode:", JSON.stringify(normalizedCode));
 
-    // ✅ Normalize — decode at trim
-    const normalizedCode = decodeURIComponent(code).trim();
+  const userObjectId = new mongoose.Types.ObjectId(userId);
 
-    console.log("🔍 normalizedCode:", JSON.stringify(normalizedCode));
-
-    const userObjectId = new mongoose.Types.ObjectId(userId);
-
-    // ✅ Regex-safe escape
-    const escapeRegex = (str) =>
-        str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-    const result = await Assign.aggregate([
-        // 1) Laboratory — Encharge = user
-        {
-            $lookup: {
-                from: "laboratories",
-                let: { labId: "$Laboratory" },
-                pipeline: [
-                    {
-                        $match: {
-                            $expr: {
-                                $and: [
-                                    { $eq: ["$_id", "$$labId"] },
-                                    { $eq: ["$Encharge", userObjectId] },
-                                ],
-                            },
-                        },
-                    },
-                    { $project: { _id: 1 } },
-                ],
-                as: "LaboratoryData",
-            },
-        },
-        { $unwind: "$LaboratoryData" },
-
-        // 2) Equipment lookup
-        {
-            $lookup: {
-                from: "equipment",
-                localField: "Equipments",
-                foreignField: "_id",
-                as: "EquipmentData",
-            },
-        },
-        { $unwind: "$EquipmentData" },
-
-        // 3) ✅ MATCH — case-insensitive, trimmed, exact
-        {
+  const result = await Assign.aggregate([
+    // 1) Laboratory — Encharge = user
+    {
+      $lookup: {
+        from: "laboratories",
+        let: { labId: "$Laboratory" },
+        pipeline: [
+          {
             $match: {
-                $expr: {
-                    $eq: [
-                        {
-                            $toLower: {
-                                $trim: {
-                                    input: {
-                                        $ifNull: [
-                                            "$EquipmentData.code",
-                                            "",
-                                        ],
-                                    },
-                                },
-                            },
-                        },
-                        normalizedCode.toLowerCase(),
+              $expr: {
+                $and: [
+                  { $eq: ["$_id", "$$labId"] },
+                  { $eq: ["$Encharge", userObjectId] },
+                ],
+              },
+            },
+          },
+          { $project: { _id: 1 } },
+        ],
+        as: "LaboratoryData",
+      },
+    },
+    { $unwind: "$LaboratoryData" },
+
+    // 2) Equipment lookup
+    {
+      $lookup: {
+        from: "equipment",
+        localField: "Equipments",
+        foreignField: "_id",
+        as: "EquipmentData",
+      },
+    },
+    { $unwind: "$EquipmentData" },
+
+    // ✅ 3) CATEGORY LOOKUP — para makuha ang CategoryName
+    {
+      $lookup: {
+        from: "categories",
+        localField: "EquipmentData.Category",
+        foreignField: "_id",
+        as: "CategoryData",
+      },
+    },
+    {
+      $unwind: {
+        path: "$CategoryData",
+        preserveNullAndEmptyArrays: true,
+      },
+    },
+
+    // 4) MATCH — case-insensitive, trimmed, exact
+    {
+      $match: {
+        $expr: {
+          $eq: [
+            {
+              $toLower: {
+                $trim: {
+                  input: {
+                    $ifNull: [
+                      "$EquipmentData.code",
+                      "",
                     ],
+                  },
                 },
+              },
             },
+            normalizedCode.toLowerCase(),
+          ],
         },
+      },
+    },
 
-        // 4) FINAL OUTPUT
-        {
-            $project: {
-                _id: "$EquipmentData._id",
-                code: "$EquipmentData.code",
-                Brand: "$EquipmentData.Brand",
-                DateAcquired: "$EquipmentData.DateAcquired",
-                Category: "$EquipmentData.Category",
-                SerialNumber: "$EquipmentData.SerialNumber",
+    // 5) FINAL OUTPUT
+    {
+      $project: {
+        _id: "$EquipmentData._id",
+        code: "$EquipmentData.code",
+        Brand: "$EquipmentData.Brand",
+        DateAcquired: "$EquipmentData.DateAcquired",
+        Category: "$EquipmentData.Category",
+        CategoryName: {
+          $ifNull: ["$CategoryData.CategoryName", ""],
+        }, // ✅ TAMA — capital C, capital N
+        SerialNumber: "$EquipmentData.SerialNumber",
+      },
+    },
+
+    { $limit: 1 },
+  ]);
+
+  console.log("🔍 result:", result);
+
+  if (!result || result.length === 0) {
+    const debugCount = await Assign.aggregate([
+      {
+        $lookup: {
+          from: "laboratories",
+          let: { labId: "$Laboratory" },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ["$_id", "$$labId"] },
+                    {
+                      $eq: [
+                        "$Encharge",
+                        userObjectId,
+                      ],
+                    },
+                  ],
+                },
+              },
             },
+            { $project: { _id: 1 } },
+          ],
+          as: "LaboratoryData",
         },
-
-        { $limit: 1 },
+      },
+      { $unwind: "$LaboratoryData" },
+      {
+        $lookup: {
+          from: "equipment",
+          localField: "Equipments",
+          foreignField: "_id",
+          as: "EquipmentData",
+        },
+      },
+      { $unwind: "$EquipmentData" },
+      {
+        $project: {
+          code: "$EquipmentData.code",
+          codeJson: {
+            $concat: [
+              "'",
+              { $ifNull: ["$EquipmentData.code", ""] },
+              "'",
+            ],
+          },
+        },
+      },
     ]);
 
-    console.log("🔍 result:", result);
+    console.log("🔍 Available codes in your lab:", debugCount);
 
-    if (!result || result.length === 0) {
-        // ✅ DEBUG — i-check kung may match sa equipment sa lab mo
-        const debugCount = await Assign.aggregate([
-            {
-                $lookup: {
-                    from: "laboratories",
-                    let: { labId: "$Laboratory" },
-                    pipeline: [
-                        {
-                            $match: {
-                                $expr: {
-                                    $and: [
-                                        { $eq: ["$_id", "$$labId"] },
-                                        {
-                                            $eq: [
-                                                "$Encharge",
-                                                userObjectId,
-                                            ],
-                                        },
-                                    ],
-                                },
-                            },
-                        },
-                        { $project: { _id: 1 } },
-                    ],
-                    as: "LaboratoryData",
-                },
-            },
-            { $unwind: "$LaboratoryData" },
-            {
-                $lookup: {
-                    from: "equipment",
-                    localField: "Equipments",
-                    foreignField: "_id",
-                    as: "EquipmentData",
-                },
-            },
-            { $unwind: "$EquipmentData" },
-            {
-                $project: {
-                    code: "$EquipmentData.code",
-                    codeJson: {
-                        $concat: [
-                            "'",
-                            { $ifNull: ["$EquipmentData.code", ""] },
-                            "'",
-                        ],
-                    },
-                },
-            },
-        ]);
-
-        console.log("🔍 Available codes in your lab:", debugCount);
-
-        return res.status(404).json({
-            status: "fail",
-            message: `No equipment found with code: "${normalizedCode}" in your assigned laboratory.`,
-            debug: {
-                searchedCode: normalizedCode,
-                availableCodes: debugCount.map((d) => d.codeJson),
-            },
-        });
-    }
-
-    res.status(200).json({
-        status: "success",
-        data: result[0],
+    return res.status(404).json({
+      status: "fail",
+      message: `No equipment found with code: "${normalizedCode}" in your assigned laboratory.`,
+      debug: {
+        searchedCode: normalizedCode,
+        availableCodes: debugCount.map((d) => d.codeJson),
+      },
     });
+  }
+
+  res.status(200).json({
+    status: "success",
+    data: result[0],
+  });
 });
 
-// src/Controllers/PMS002Controller.js
 
 exports.FindByEquipment = AsyncErrorHandler(async (req, res) => {
-    const userId = req.user?._id;
+  const userId = req.user?._id;
 
-    if (!userId) {
-        return res.status(400).json({
-            status: "fail",
-            message: "User ID not found in request.",
-        });
-    }
-
-    const userObjectId = new mongoose.Types.ObjectId(userId);
-
-    // ============================================================
-    // 1️⃣ Hanapin ang Laboratory ng user
-    // ============================================================
-    const laboratory = await Laboratory.aggregate([
-        {
-            $match: { Encharge: userObjectId },
-        },
-        {
-            $project: {
-                _id: 1,
-                LaboratoryName: { $ifNull: ["$LaboratoryName", "N/A"] },
-            },
-        },
-        { $limit: 1 },
-    ]);
-
-    if (!laboratory || laboratory.length === 0) {
-        return res.status(404).json({
-            status: "fail",
-            message: "No laboratory found for this user.",
-        });
-    }
-
-    const laboratoryId = laboratory[0]._id;
-
-    // ============================================================
-    // 2️⃣ Query flags
-    // ============================================================
-    const { from, to, all } = req.query;
-
-    const showAll = all === "true" || all === "1";
-
-    // ✅ Kung walang from, walang to, at hindi 'all' → empty
-    if (!showAll && !from && !to) {
-        return res.status(200).json({
-            status: "success",
-            pmsRecord: [], // ✅ empty array
-            data: {
-                _id: laboratoryId,
-                LaboratoryName: laboratory[0].LaboratoryName,
-            },
-        });
-    }
-
-    // ============================================================
-    // 3️⃣ Buuin ang date filter (kung may from/to)
-    // ============================================================
-    const dateFilter = {};
-
-    if (!showAll && (from || to)) {
-        dateFilter.createdAt = {};
-
-        if (from) {
-            const fromDate = new Date(from);
-            if (isNaN(fromDate.getTime())) {
-                return res.status(400).json({
-                    status: "fail",
-                    message: "Invalid 'from' date format. Use YYYY-MM-DD.",
-                });
-            }
-            fromDate.setHours(0, 0, 0, 0);
-            dateFilter.createdAt.$gte = fromDate;
-        }
-
-        if (to) {
-            const toDate = new Date(to);
-            if (isNaN(toDate.getTime())) {
-                return res.status(400).json({
-                    status: "fail",
-                    message: "Invalid 'to' date format. Use YYYY-MM-DD.",
-                });
-            }
-            toDate.setHours(23, 59, 59, 999);
-            dateFilter.createdAt.$lte = toDate;
-        }
-    }
-
-    // ============================================================
-    // 4️⃣ Kunin ang PMS records
-    //    - Kapag showAll → walang date filter (lahat)
-    //    - Kapag may from/to → filtered
-    // ============================================================
-    const pmsRecord = await PMSMaintenanceController.find({
-        laboratoryId,
-        ...dateFilter,
-    })
-        .populate("equipmentId")
-        .sort({ createdAt: -1 });
-
-    // ============================================================
-    // 5️⃣ Response
-    // ============================================================
-    res.status(200).json({
-        status: "success",
-        pmsRecord,
-        data: {
-            _id: laboratoryId,
-            LaboratoryName: laboratory[0].LaboratoryName,
-        },
+  if (!userId) {
+    return res.status(400).json({
+      status: "fail",
+      message: "User ID not found in request.",
     });
+  }
+
+  const userObjectId = new mongoose.Types.ObjectId(userId);
+
+  // ============================================================
+  // 1️⃣ Hanapin ang Laboratory ng user
+  // ============================================================
+  const laboratory = await Laboratory.aggregate([
+    {
+      $match: { Encharge: userObjectId },
+    },
+    {
+      $project: {
+        _id: 1,
+        LaboratoryName: { $ifNull: ["$LaboratoryName", "N/A"] },
+      },
+    },
+    { $limit: 1 },
+  ]);
+
+  if (!laboratory || laboratory.length === 0) {
+    return res.status(404).json({
+      status: "fail",
+      message: "No laboratory found for this user.",
+    });
+  }
+
+  const laboratoryId = laboratory[0]._id;
+
+  // ============================================================
+  // 2️⃣ Query flags
+  // ============================================================
+  const { from, to, all } = req.query;
+
+  const showAll = all === "true" || all === "1";
+
+  // ✅ Kung walang from, walang to, at hindi 'all' → empty
+  if (!showAll && !from && !to) {
+    return res.status(200).json({
+      status: "success",
+      pmsRecord: [], // ✅ empty array
+      data: {
+        _id: laboratoryId,
+        LaboratoryName: laboratory[0].LaboratoryName,
+      },
+    });
+  }
+
+  // ============================================================
+  // 3️⃣ Buuin ang date filter (kung may from/to)
+  // ============================================================
+  const dateFilter = {};
+
+  if (!showAll && (from || to)) {
+    dateFilter.createdAt = {};
+
+    if (from) {
+      const fromDate = new Date(from);
+      if (isNaN(fromDate.getTime())) {
+        return res.status(400).json({
+          status: "fail",
+          message: "Invalid 'from' date format. Use YYYY-MM-DD.",
+        });
+      }
+      fromDate.setHours(0, 0, 0, 0);
+      dateFilter.createdAt.$gte = fromDate;
+    }
+
+    if (to) {
+      const toDate = new Date(to);
+      if (isNaN(toDate.getTime())) {
+        return res.status(400).json({
+          status: "fail",
+          message: "Invalid 'to' date format. Use YYYY-MM-DD.",
+        });
+      }
+      toDate.setHours(23, 59, 59, 999);
+      dateFilter.createdAt.$lte = toDate;
+    }
+  }
+
+  // ============================================================
+  // 4️⃣ Kunin ang PMS records
+  //    - Kapag showAll → walang date filter (lahat)
+  //    - Kapag may from/to → filtered
+  // ============================================================
+  const pmsRecord = await PMSMaintenanceController.find({
+    laboratoryId,
+    ...dateFilter,
+  })
+    .populate("equipmentId")
+    .sort({ createdAt: -1 });
+
+  // ============================================================
+  // 5️⃣ Response
+  // ============================================================
+  res.status(200).json({
+    status: "success",
+    pmsRecord,
+    data: {
+      _id: laboratoryId,
+      LaboratoryName: laboratory[0].LaboratoryName,
+    },
+  });
 });

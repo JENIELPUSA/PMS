@@ -3,7 +3,6 @@ import mongoose from "mongoose";
 
 const equipmentpms006Schema = new mongoose.Schema(
     {
-        // ✅ FK sa PMS001
         pms001Id: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "PMS001",
@@ -38,8 +37,6 @@ const equipmentpms006Schema = new mongoose.Schema(
     },
     { timestamps: true }
 );
-
-// ✅ Indexes
 equipmentpms006Schema.index({ equipmentId: 1 });
 equipmentpms006Schema.index({ pms001Id: 1 });              // ✅ bagong index
 equipmentpms006Schema.index({ laboratoryId: 1 });

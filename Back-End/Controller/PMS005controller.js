@@ -152,57 +152,220 @@ exports.FindByEquipment = AsyncErrorHandler(async (req, res) => {
 });
 
 // ============================================================
-// CREATE — Add new PMS005 record
+// CREATE — Add new PMS005 record (upsert by pms001Id)
 // ============================================================
 exports.createPMS005 = AsyncErrorHandler(async (req, res, next) => {
-    const { equipmentId, laboratoryId } = req.body;
+    try {
+        const {
+            equipmentId,
+            laboratoryId,
+            pms001Id,
+            Tech_Lab_InCharge,
+        } = req.body;
 
-    console.log("BODY", req.body);
+        if (process.env.NODE_ENV !== 'production') {
+            console.log("BODY", req.body);
+            console.log("pms001Id:", pms001Id);
+            console.log("Tech_Lab_InCharge:", Tech_Lab_InCharge);
+        }
 
-    // Validate equipmentId
-    if (!equipmentId) {
-        return next(new CustomError("Equipment ID is required", 400));
+        console.log("______", pms001Id)
+
+        // ------------------------------------------------------
+        // VALIDATE equipmentId
+        // ------------------------------------------------------
+        if (!equipmentId) {
+            return next(new CustomError("Equipment ID is required", 400));
+        }
+
+        if (!mongoose.Types.ObjectId.isValid(equipmentId)) {
+            return next(new CustomError("Invalid Equipment ID format", 400));
+        }
+
+        const equipmentExists = await Equipment.findById(equipmentId);
+        if (!equipmentExists) {
+            return next(new CustomError("Equipment not found", 404));
+        }
+
+        // ------------------------------------------------------
+        // VALIDATE laboratoryId
+        // ------------------------------------------------------
+        if (!laboratoryId) {
+            return next(new CustomError("Laboratory ID is required", 400));
+        }
+
+        if (!mongoose.Types.ObjectId.isValid(laboratoryId)) {
+            return next(new CustomError("Invalid Laboratory ID format", 400));
+        }
+
+        const laboratoryExists = await Laboratory.findById(laboratoryId);
+        if (!laboratoryExists) {
+            return next(new CustomError("Laboratory not found", 404));
+        }
+
+        // ------------------------------------------------------
+        // REMOVE Remarks/remarks (case-insensitive)
+        // ------------------------------------------------------
+        const bodyWithoutRemarks = Object.fromEntries(
+            Object.entries(req.body).filter(
+                ([key]) => key.toLowerCase() !== 'remarks'
+            )
+        );
+
+        // ------------------------------------------------------
+        // NORMALIZE fields
+        // ------------------------------------------------------
+        const normalizedBody = { ...bodyWithoutRemarks };
+
+        // Siguraduhing kasama ang required fields
+        normalizedBody.pms001Id = pms001Id;
+        normalizedBody.equipmentId = equipmentId;
+        normalizedBody.laboratoryId = laboratoryId;
+
+        // Tech_Lab_InCharge as String
+        if (Tech_Lab_InCharge !== undefined && Tech_Lab_InCharge !== null) {
+            if (typeof Tech_Lab_InCharge === 'object') {
+                return next(
+                    new CustomError(
+                        "Tech_Lab_InCharge must be a string (full name), not an object",
+                        400
+                    )
+                );
+            }
+            normalizedBody.Tech_Lab_InCharge = String(
+                Tech_Lab_InCharge
+            ).trim();
+        }
+
+        // Spare_Parts — trim
+        if (normalizedBody.Spare_Parts !== undefined) {
+            normalizedBody.Spare_Parts = String(
+                normalizedBody.Spare_Parts
+            ).trim();
+        }
+
+        // Problem_Encounter — trim
+        if (normalizedBody.Problem_Encounter !== undefined) {
+            normalizedBody.Problem_Encounter = String(
+                normalizedBody.Problem_Encounter
+            ).trim();
+        }
+
+        // Man_hour_used — trim + numeric guard
+        if (normalizedBody.Man_hour_used !== undefined) {
+            const raw = normalizedBody.Man_hour_used;
+            if (raw === '' || raw === null) {
+                normalizedBody.Man_hour_used = '';
+            } else {
+                const num = Number(raw);
+                if (Number.isNaN(num)) {
+                    return next(
+                        new CustomError(
+                            "Man_hour_used must be a number",
+                            400
+                        )
+                    );
+                }
+                normalizedBody.Man_hour_used = num;
+            }
+        }
+
+        // Date — normalize to Date object
+        if (normalizedBody.Date) {
+            const d = new Date(normalizedBody.Date);
+            if (Number.isNaN(d.getTime())) {
+                return next(
+                    new CustomError("Invalid Date format", 400)
+                );
+            }
+            normalizedBody.Date = d;
+        } else {
+            normalizedBody.Date = new Date();
+        }
+
+        if (process.env.NODE_ENV !== 'production') {
+            console.log("normalizedBody:", normalizedBody);
+        }
+
+        // ------------------------------------------------------
+        // UPSERT — hanapin muna kung existing na ang pms001Id
+        // ------------------------------------------------------
+        let record = await PMSMaintenanceController.findOne({ pms001Id });
+        let isUpdate = false;
+
+        if (record) {
+            record = await PMSMaintenanceController.findOneAndUpdate(
+                { pms001Id },
+                { $set: normalizedBody },
+                { new: true, runValidators: true }
+            );
+            isUpdate = true;
+            console.log("Updated existing PMS005 record:", record._id);
+        } else {
+            record = await PMSMaintenanceController.create(normalizedBody);
+            console.log("Created new PMS005 record:", record._id);
+        }
+
+        if (!record) {
+            return next(
+                new CustomError("Failed to save PMS005 record", 400)
+            );
+        }
+
+        // Populate equipment only
+        const populated = await record.populate("equipmentId");
+
+        res.status(isUpdate ? 200 : 201).json({
+            status: "success",
+            message: isUpdate
+                ? "PMS005 record updated successfully"
+                : "PMS005 record created successfully",
+            data: populated,
+        });
+    } catch (err) {
+        console.error("createPMS005 error:", {
+            name: err.name,
+            message: err.message,
+            code: err.code,
+            errors: err.errors,
+        });
+
+        if (err.name === "ValidationError") {
+            const messages = Object.values(err.errors).map(
+                (e) => e.message
+            );
+            return next(
+                new CustomError(
+                    `Validation failed: ${messages.join(", ")}`,
+                    400
+                )
+            );
+        }
+
+        if (err.name === "CastError") {
+            return next(
+                new CustomError(
+                    `Invalid ${err.path}: ${err.value}`,
+                    400
+                )
+            );
+        }
+
+        if (err.code === 11000) {
+            const field =
+                Object.keys(err.keyPattern || {})[0] || "field";
+            return next(
+                new CustomError(`Duplicate value for ${field}`, 409)
+            );
+        }
+
+        return next(
+            new CustomError(
+                err?.message || "Failed to create PMS005 record",
+                500
+            )
+        );
     }
-
-    if (!mongoose.Types.ObjectId.isValid(equipmentId)) {
-        return next(new CustomError("Invalid Equipment ID format", 400));
-    }
-
-    // Validate laboratoryId
-    if (!laboratoryId) {
-        return next(new CustomError("Laboratory ID is required", 400));
-    }
-
-    if (!mongoose.Types.ObjectId.isValid(laboratoryId)) {
-        return next(new CustomError("Invalid Laboratory ID format", 400));
-    }
-
-    // Check kung existing ang Equipment
-    const equipmentExists = await Equipment.findById(equipmentId);
-    if (!equipmentExists) {
-        return next(new CustomError("Equipment not found", 404));
-    }
-
-    // Check kung existing ang Laboratory
-    const laboratoryExists = await Laboratory.findById(laboratoryId);
-    if (!laboratoryExists) {
-        return next(new CustomError("Laboratory not found", 404));
-    }
-
-    // Create record
-    const newRecord = await PMSMaintenanceController.create(req.body);
-
-    if (!newRecord) {
-        return next(new CustomError("Failed to create PMS005 record", 400));
-    }
-
-    // Populate equipment details
-    const populated = await newRecord.populate("equipmentId");
-
-    res.status(201).json({
-        status: "success",
-        data: populated,
-    });
 });
 
 // ============================================================
